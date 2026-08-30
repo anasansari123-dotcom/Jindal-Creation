@@ -16,6 +16,8 @@ export const dispatchItemSchema = z
     kgDiscount: z.coerce.number().min(0).default(0),
     itemDiscount: z.coerce.number().min(0).default(0),
     unitPrice: z.coerce.number().min(0).optional(),
+    pieceUnitPrice: z.coerce.number().min(0).optional(),
+    kgUnitPrice: z.coerce.number().min(0).optional(),
   })
   .superRefine((item, ctx) => {
     const boxQty = item.boxQty || (item.sellMode === "box" || item.unitType === "boxes" ? item.quantity : 0) || 0;
@@ -47,6 +49,8 @@ export const dispatchBillSchema = z.object({
   paymentMode: z.enum(PAYMENT_METHODS).optional(),
   salespersonName: z.string().min(1, "Bill banane wale ka naam required hai").optional(),
   notes: z.string().optional(),
+  /** When true, customer's old bill pending is added to this bill */
+  includeCarriedForward: z.boolean().optional().default(true),
 }).superRefine((data, ctx) => {
   if (data.orderType === "advance") {
     if (!data.readyByDate?.trim()) {

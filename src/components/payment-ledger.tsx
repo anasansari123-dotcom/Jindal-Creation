@@ -4,6 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
+  formatBillPaymentFormula,
+  getBillPaymentDisplay,
+  type BillPaymentFields,
+} from "@/lib/bill-payment-display";
+import {
   type PaymentSummary,
   getPaymentStatusLabel,
 } from "@/lib/payment-ledger";
@@ -54,10 +59,10 @@ export function PaymentSummaryCard({
             <div className="rounded-lg bg-green-50 p-4 text-center">
               <p className="text-xs text-gray-500 uppercase tracking-wide">Customer Paid</p>
               <p className="text-2xl font-bold text-green-700 mt-1">
-                {formatCurrency(summary.totalClientPaid)}
+                {formatCurrency(summary.totalCashPaid)}
               </p>
               <p className="text-xs text-green-600 mt-1">
-                {summary.totalClientPaid > 0 ? "✓ Payment received" : "No payment yet"}
+                {summary.totalCashPaid > 0 ? "✓ Payment received" : "No payment yet"}
               </p>
             </div>
             <div className="rounded-lg bg-red-50 p-4 text-center">
@@ -83,21 +88,34 @@ export function PaymentSummaryCard({
           {/* Clear calculation formula */}
           <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm">
             <p className="font-medium text-navy mb-2">Calculation:</p>
-            <div className="flex flex-wrap items-center gap-2 font-mono text-base">
-              <span className="text-navy font-semibold">{formatCurrency(summary.totalBillAmount)}</span>
-              <span className="text-gray-400">(Bill)</span>
-              <span className="text-gray-400">−</span>
-              <span className="text-green-700 font-semibold">{formatCurrency(summary.totalClientPaid)}</span>
-              <span className="text-gray-400">(Paid)</span>
-              <span className="text-gray-400">=</span>
-              <span className={`font-bold ${summary.hasPending ? "text-red-600" : "text-green-700"}`}>
-                {formatCurrency(summary.totalPending)}
-              </span>
-              <span className="text-gray-400">(Net Pending)</span>
-            </div>
+            {summary.creditBalance > 0 && !summary.hasPending ? (
+              <div className="flex flex-wrap items-center gap-2 font-mono text-base">
+                <span className="text-green-700 font-semibold">{formatCurrency(summary.totalCashPaid)}</span>
+                <span className="text-gray-400">(Paid)</span>
+                <span className="text-gray-400">−</span>
+                <span className="text-navy font-semibold">{formatCurrency(summary.totalBillAmount)}</span>
+                <span className="text-gray-400">(Bill)</span>
+                <span className="text-gray-400">=</span>
+                <span className="font-bold text-gold">{formatCurrency(summary.creditBalance)}</span>
+                <span className="text-gray-400">(Advance save)</span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 font-mono text-base">
+                <span className="text-navy font-semibold">{formatCurrency(summary.totalBillAmount)}</span>
+                <span className="text-gray-400">(Bill)</span>
+                <span className="text-gray-400">−</span>
+                <span className="text-green-700 font-semibold">{formatCurrency(summary.totalCashPaid)}</span>
+                <span className="text-gray-400">(Paid)</span>
+                <span className="text-gray-400">=</span>
+                <span className={`font-bold ${summary.hasPending ? "text-red-600" : "text-green-700"}`}>
+                  {formatCurrency(summary.totalPending)}
+                </span>
+                <span className="text-gray-400">(Pending)</span>
+              </div>
+            )}
             {(summary.creditAppliedToPending || 0) > 0 && (
               <p className="text-xs text-gold mt-2">
-                Advance credit {formatCurrency(summary.creditAppliedToPending!)} pending par adjust hua
+                Account advance {formatCurrency(summary.creditAppliedToPending!)} pending par adjust hua
                 — bacha advance {formatCurrency(summary.creditBalance || 0)}
               </p>
             )}
@@ -105,7 +123,13 @@ export function PaymentSummaryCard({
               <span className="text-gray-500">Status:</span>
               <StatusBadge
                 status={
-                  summary.isFullyPaid ? "PAID" : summary.totalClientPaid > 0 ? "PARTIAL" : "UNPAID"
+                  summary.isFullyPaid && summary.creditBalance <= 0
+                    ? "PAID"
+                    : summary.creditBalance > 0
+                      ? "PAID"
+                      : summary.totalCashPaid > 0
+                        ? "PARTIAL"
+                        : "UNPAID"
                 }
               />
               <span className="text-sm text-gray-600">{statusLabel}</span>
@@ -122,10 +146,13 @@ export function PaymentSummaryCard({
           </CardHeader>
           <CardContent>
             <div className="table-scroll">
-              <table className="w-full min-w-[1100px] text-sm">
+              <table className="w-full min-w-[1200px] text-sm">
                 <thead>
                   <tr className="border-b text-left text-gray-500 bg-gray-50">
                     <th className="p-2 font-medium">Date</th>
+                    {customerName ? (
+                      <th className="p-2 font-medium">Customer</th>
+                    ) : null}
                     <th className="p-2 font-medium">Type</th>
                     <th className="p-2 font-medium">Bill ID</th>
                     <th className="p-2 font-medium text-right">Bill Amount</th>
@@ -146,6 +173,11 @@ export function PaymentSummaryCard({
                       className={`border-b hover:bg-gray-50 ${isCurrent ? "bg-gold/10 ring-1 ring-gold/30" : ""}`}
                     >
                       <td className="p-2 text-gray-600">{formatDate(row.date)}</td>
+                      {customerName ? (
+                        <td className="p-2 font-medium text-navy">
+                          {row.customerName || customerName}
+                        </td>
+                      ) : null}
                       <td className="p-2">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                           row.billType === "Final" ? "bg-green-100 text-green-800" :
@@ -203,12 +235,12 @@ export function PaymentSummaryCard({
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-navy/20 bg-navy/5 font-bold">
-                    <td className="p-3" colSpan={3}>Grand Total</td>
+                    <td className="p-3" colSpan={customerName ? 4 : 3}>Grand Total</td>
                     <td className="p-3 text-right text-navy">{formatCurrency(summary.totalBillAmount)}</td>
-                    <td className="p-3 text-right text-green-700">{formatCurrency(summary.totalClientPaid)}</td>
+                    <td className="p-3 text-right text-green-700">{formatCurrency(summary.totalCashPaid)}</td>
                     <td className="p-3 text-right text-red-600">{formatCurrency(summary.totalPending)}</td>
                     <td className="p-3 text-right text-navy">{formatCurrency(summary.totalBillAmount)}</td>
-                    <td className="p-3 text-right text-green-700">{formatCurrency(summary.totalClientPaid)}</td>
+                    <td className="p-3 text-right text-green-700">{formatCurrency(summary.totalCashPaid)}</td>
                     <td className="p-3 text-right text-red-600">{formatCurrency(summary.totalPending)}</td>
                     <td className="p-3">
                       {summary.hasPending ? (
@@ -235,38 +267,70 @@ export function SingleBillPaymentBox({
   pending,
   paymentStatus,
   label = "Bill Payment Details",
+  creditAdded = 0,
+  creditApplied = 0,
+  bill,
 }: {
   billAmount: number;
   clientPaid: number;
   pending: number;
   paymentStatus: string;
   label?: string;
+  creditAdded?: number;
+  creditApplied?: number;
+  /** Prefer passing full bill — derives cash/advance/pending consistently */
+  bill?: BillPaymentFields;
 }) {
+  const display = bill
+    ? getBillPaymentDisplay(bill)
+    : getBillPaymentDisplay({
+        total: billAmount,
+        advance: clientPaid,
+        pending,
+        creditAdded,
+        creditApplied,
+      });
+
+  const thirdLabel = display.hasAdvance ? "Advance (Account)" : "Pending";
+  const thirdAmount = display.hasAdvance ? display.creditAdded : display.pending;
+  const thirdClass = display.hasAdvance
+    ? "text-gold"
+    : display.hasPending
+      ? "text-red-600"
+      : "text-green-700";
+
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
       <p className="font-medium text-navy text-sm">{label}</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
         <div>
           <p className="text-xs text-gray-500">Bill Amount</p>
-          <p className="text-lg font-bold text-navy">{formatCurrency(billAmount)}</p>
+          <p className="text-lg font-bold text-navy">{formatCurrency(display.billAmount)}</p>
         </div>
         <div>
           <p className="text-xs text-gray-500">Customer Paid</p>
-          <p className="text-lg font-bold text-green-700">{formatCurrency(clientPaid)}</p>
+          <p className="text-lg font-bold text-green-700">{formatCurrency(display.cashPaid)}</p>
+          {display.creditApplied > 0 && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              incl. {formatCurrency(display.creditApplied)} account advance use
+            </p>
+          )}
         </div>
         <div>
-          <p className="text-xs text-gray-500">Pending</p>
-          <p className="text-lg font-bold text-red-600">{formatCurrency(pending)}</p>
+          <p className="text-xs text-gray-500">{thirdLabel}</p>
+          <p className={`text-lg font-bold ${thirdClass}`}>{formatCurrency(thirdAmount)}</p>
         </div>
       </div>
       <div className="text-center text-sm font-mono border-t pt-2">
-        {formatCurrency(billAmount)} − {formatCurrency(clientPaid)} ={" "}
-        <span className={pending > 0 ? "text-red-600 font-bold" : "text-green-700 font-bold"}>
-          {formatCurrency(pending)}
-        </span>
+        <span className={thirdClass}>{formatBillPaymentFormula(display)}</span>
       </div>
       <div className="flex justify-center">
         <StatusBadge status={paymentStatus} />
+        {display.hasAdvance && (
+          <span className="ml-2 text-xs font-medium text-gold bg-gold/10 px-2 py-1 rounded-full">
+            Advance saved
+          </span>
+        )}
       </div>
     </div>
   );

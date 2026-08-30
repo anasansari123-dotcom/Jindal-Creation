@@ -3,6 +3,7 @@
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { enrichDispatchBill } from "@/lib/bill-pricing";
+import { getBillPaymentDisplay, formatBillPaymentFormula } from "@/lib/bill-payment-display";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -150,18 +151,25 @@ export function generateBillWhatsAppMessage(bill: {
   total: number;
   advance: number;
   pending: number;
+  cashPaid?: number;
+  creditAdded?: number;
+  creditApplied?: number;
   paymentMode?: string;
 }): string {
+  const payment = getBillPaymentDisplay(bill);
   const modeLine = bill.paymentMode ? `Payment Mode: ${bill.paymentMode}\n` : "";
+  const thirdLine = payment.hasAdvance
+    ? `Advance (Account me save): ₹${payment.creditAdded.toLocaleString("en-IN")}\n`
+    : `Pending: ₹${payment.pending.toLocaleString("en-IN")}\n`;
+
   return `Hello ${bill.customerName},
 
 Your ${bill.billType === "FINAL" ? "Final" : "Dispatch"} Bill from Jindal Creation.
 
 Bill ID: ${bill.billId}
 Grand Total: ₹${bill.total.toLocaleString("en-IN")}
-Customer Paid: ₹${bill.advance.toLocaleString("en-IN")}
-${modeLine}Pending: ₹${bill.pending.toLocaleString("en-IN")}
-Calculation: ₹${bill.total.toLocaleString("en-IN")} − ₹${bill.advance.toLocaleString("en-IN")} = ₹${bill.pending.toLocaleString("en-IN")}
+Customer Paid: ₹${payment.cashPaid.toLocaleString("en-IN")}
+${modeLine}${thirdLine}${formatBillPaymentFormula(payment)}
 
 Please find the bill attached.
 Thank you!
@@ -186,6 +194,11 @@ export function dispatchToBillData(dispatch: {
   items: import("@/components/bill-preview").BillData["items"];
   subtotal: number;
   discount: number;
+  currentBillAmount?: number;
+  carriedForwardPending?: number;
+  creditApplied?: number;
+  creditAdded?: number;
+  cashPaid?: number;
   total: number;
   advance: number;
   pending: number;
@@ -227,6 +240,11 @@ export function dispatchToBillData(dispatch: {
     })),
     subtotal: enriched.subtotal,
     discount: enriched.discount,
+    currentBillAmount: enriched.currentBillAmount,
+    carriedForwardPending: enriched.carriedForwardPending,
+    creditApplied: enriched.creditApplied,
+    creditAdded: enriched.creditAdded,
+    cashPaid: enriched.cashPaid,
     total: enriched.total,
     advance: enriched.advance,
     pending: enriched.pending ?? Math.max(0, enriched.total - enriched.advance),

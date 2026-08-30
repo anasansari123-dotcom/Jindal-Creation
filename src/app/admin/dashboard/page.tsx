@@ -1,19 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageLoader, EmptyState } from "@/components/ui/loading";
 import { formatCurrency } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 import { useEffect, useState } from "react";
 import { Select } from "@/components/ui/select";
 import Link from "next/link";
@@ -27,6 +19,15 @@ import {
   Warehouse,
 } from "lucide-react";
 
+const DashboardChart = dynamic(
+  () =>
+    import("@/components/admin/dashboard-chart").then((m) => m.DashboardChart),
+  {
+    loading: () => <PageLoader message="Loading chart" />,
+    ssr: false,
+  }
+);
+
 interface DashboardData {
   periodLabel?: string;
   stats: {
@@ -34,10 +35,15 @@ interface DashboardData {
     todayOrders: number;
     todayPieces: number;
     todayBoxes: number;
-    todayAdvance: number;
-    todayPending: number;
+    periodCashPaid: number;
+    periodBillPending: number;
     inventoryValue: number;
     lowStockCount: number;
+  };
+  portfolio?: {
+    totalAdvance: number;
+    totalPending: number;
+    totalPaid: number;
   };
   recentOrders: Array<{
     _id: string;
@@ -68,14 +74,13 @@ function periodToFilter(period: string) {
 
 function statCardLinks(period: string) {
   const filter = periodToFilter(period);
-  const ordersPeriod = period === "today" ? "today" : period === "30days" ? "month" : "week";
   return {
     todaySales: `/admin/sales?filter=${filter}`,
-    todayOrders: `/admin/orders?period=${ordersPeriod}`,
+    todayOrders: `/admin/dispatch`,
     todayPieces: `/admin/sales?filter=${filter}`,
     todayBoxes: `/admin/sales?filter=${filter}`,
-    todayAdvance: `/admin/payments?filter=credit`,
-    todayPending: `/admin/payments?filter=pending`,
+    periodCashPaid: `/admin/sales?filter=${filter}`,
+    periodBillPending: `/admin/sales?filter=${filter}`,
     inventoryValue: `/admin/inventory`,
     lowStockCount: `/admin/inventory?status=${encodeURIComponent("Low Stock")}`,
   } as const;
@@ -85,11 +90,11 @@ function statCardsForPeriod(periodLabel?: string) {
   const prefix = periodLabel && periodLabel !== "Today" ? periodLabel : "Today's";
   return [
     { key: "todaySales", label: `${prefix} Sales`, icon: DollarSign, format: "currency" },
-    { key: "todayOrders", label: `${prefix} Orders`, icon: ShoppingCart, format: "number" },
-    { key: "todayPieces", label: "Pieces Sold", icon: Package, format: "number" },
+    { key: "todayOrders", label: `${prefix} Bills`, icon: ShoppingCart, format: "number" },
+    { key: "todayPieces", label: "Loose Pcs Sold", icon: Package, format: "number" },
     { key: "todayBoxes", label: "Boxes Sold", icon: Box, format: "number" },
-    { key: "todayAdvance", label: "Portfolio Advance", icon: Wallet, format: "currency" },
-    { key: "todayPending", label: "Portfolio Pending", icon: AlertTriangle, format: "currency" },
+    { key: "periodCashPaid", label: `${prefix} Customer Paid`, icon: Wallet, format: "currency" },
+    { key: "periodBillPending", label: `${prefix} Bill Pending`, icon: AlertTriangle, format: "currency" },
     { key: "inventoryValue", label: "Inventory Value", icon: Warehouse, format: "currency" },
     { key: "lowStockCount", label: "Low Stock Products", icon: AlertTriangle, format: "number" },
   ] as const;
@@ -97,9 +102,25 @@ function statCardsForPeriod(periodLabel?: string) {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [portfolio, setPortfolio] = useState<DashboardData["portfolio"]>();
   const [period, setPeriod] = useState("7days");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/portfolio/summary")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.portfolio) {
+          setPortfolio({
+            totalAdvance: d.portfolio.totalAdvance,
+            totalPending: d.portfolio.totalPending,
+            totalPaid: d.portfolio.totalPaid,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -165,6 +186,28 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {portfolio && (
+        <Card className="border-navy/10 bg-navy/[0.02]">
+          <CardContent className="p-4">
+            <p className="text-xs font-medium text-gray-500 mb-3">All Customers — Portfolio Summary</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+              <Link href="/admin/payments?filter=credit" className="rounded-lg bg-gold/10 border border-gold/20 p-3 hover:border-gold/40 transition-colors">
+                <p className="text-xs text-gray-500">Account Advance</p>
+                <p className="text-lg font-bold text-gold">{formatCurrency(portfolio.totalAdvance)}</p>
+              </Link>
+              <Link href="/admin/payments?filter=pending" className="rounded-lg bg-red-50 border border-red-100 p-3 hover:border-red-200 transition-colors">
+                <p className="text-xs text-gray-500">Total Pending</p>
+                <p className="text-lg font-bold text-red-600">{formatCurrency(portfolio.totalPending)}</p>
+              </Link>
+              <Link href="/admin/customers" className="rounded-lg bg-green-50 border border-green-100 p-3 hover:border-green-200 transition-colors">
+                <p className="text-xs text-gray-500">Total Customer Paid</p>
+                <p className="text-lg font-bold text-green-700">{formatCurrency(portfolio.totalPaid)}</p>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -180,22 +223,7 @@ export default function DashboardPage() {
             </Select>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={data.chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(d) => new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
-                />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip
-                  formatter={(value) => [formatCurrency(Number(value)), "Sales"]}
-                  labelFormatter={(label) => formatDate(String(label))}
-                />
-                <Bar dataKey="sales" fill="#c9a227" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <DashboardChart data={data.chartData} />
           </CardContent>
         </Card>
 
@@ -233,7 +261,7 @@ export default function DashboardPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Recent Bills</CardTitle>
           <Link
-            href={`/admin/orders?period=${period === "today" ? "today" : period === "30days" ? "month" : "week"}`}
+            href={`/admin/dispatch`}
             className="text-sm text-gold hover:underline"
           >
             Sab dekhein →
@@ -242,21 +270,22 @@ export default function DashboardPage() {
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
+              <caption className="sr-only">Recent bills</caption>
               <thead>
                 <tr className="border-b text-left text-gray-500">
-                  <th className="pb-3 font-medium">Order ID</th>
-                  <th className="pb-3 font-medium">Customer</th>
-                  <th className="pb-3 font-medium">Amount</th>
-                  <th className="pb-3 font-medium">Payment</th>
-                  <th className="pb-3 font-medium">Status</th>
-                  <th className="pb-3 font-medium">Date</th>
+                  <th scope="col" className="pb-3 font-medium">Order ID</th>
+                  <th scope="col" className="pb-3 font-medium">Customer</th>
+                  <th scope="col" className="pb-3 font-medium">Amount</th>
+                  <th scope="col" className="pb-3 font-medium">Payment</th>
+                  <th scope="col" className="pb-3 font-medium">Status</th>
+                  <th scope="col" className="pb-3 font-medium">Date</th>
                 </tr>
               </thead>
               <tbody>
                 {data.recentOrders.map((order) => (
                   <tr key={order._id} className="border-b last:border-0">
                     <td className="py-3">
-                      <Link href={order.href} className="text-gold hover:underline font-medium">
+                      <Link href={order.href} className="text-wood hover:underline font-medium">
                         {order.orderId}
                       </Link>
                     </td>

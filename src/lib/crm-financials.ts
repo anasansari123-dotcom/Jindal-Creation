@@ -1,6 +1,10 @@
 import {
   collectCustomerBills,
+  customerNamesMatch,
   getCustomerPaymentStats,
+  mapConfirmBillsForCollect,
+  mapDispatchesForCollect,
+  mapOrdersForCollect,
   type CustomerBillEntry,
 } from "@/lib/customer-bills";
 
@@ -12,6 +16,7 @@ export function mapOrderToBillInput(o: {
   _id: { toString(): string };
   orderId: string;
   orderDate: Date | string;
+  customerName?: string;
   total: number;
   advance: number;
   pending: number;
@@ -22,6 +27,7 @@ export function mapOrderToBillInput(o: {
     _id: o._id,
     orderId: o.orderId,
     orderDate: o.orderDate,
+    customerName: o.customerName,
     total: o.total,
     advance: o.advance,
     pending: o.pending,
@@ -37,9 +43,13 @@ export function mapDispatchToBillInput(d: {
   billStatus: "DISPATCH" | "FINAL";
   orderId?: { toString(): string };
   dispatchDate: Date | string;
+  customerName?: string;
   total: number;
   advance: number;
   pending: number;
+  cashPaid?: number;
+  creditAdded?: number;
+  creditApplied?: number;
   paymentStatus: string;
 }) {
   return {
@@ -49,9 +59,13 @@ export function mapDispatchToBillInput(d: {
     billStatus: d.billStatus,
     orderId: d.orderId,
     dispatchDate: d.dispatchDate,
+    customerName: d.customerName,
     total: d.total,
     advance: d.advance,
     pending: d.pending,
+    cashPaid: d.cashPaid,
+    creditAdded: d.creditAdded,
+    creditApplied: d.creditApplied,
     paymentStatus: d.paymentStatus,
   };
 }
@@ -61,6 +75,7 @@ export function mapConfirmToBillInput(cb: {
   confirmBillId: string;
   orderId: { toString(): string };
   confirmDate: Date | string;
+  customerName?: string;
   total: number;
   advance: number;
   pending: number;
@@ -71,6 +86,7 @@ export function mapConfirmToBillInput(cb: {
     confirmBillId: cb.confirmBillId,
     orderId: cb.orderId,
     confirmDate: cb.confirmDate,
+    customerName: cb.customerName,
     total: cb.total,
     advance: cb.advance,
     pending: cb.pending,
@@ -78,21 +94,34 @@ export function mapConfirmToBillInput(cb: {
   };
 }
 
+/** Group bill docs by customer — includes dispatches linked via legacy orderId */
 export function groupBillDocsByCustomer<
-  T extends { customerId?: { toString(): string } },
-  D extends { customerId?: { toString(): string } },
-  C extends { customerId: { toString(): string } },
+  T extends { _id: { toString(): string }; customerId: { toString(): string } },
+  D extends {
+    customerId?: { toString(): string };
+    orderId?: { toString(): string };
+  },
+  C extends {
+    customerId?: { toString(): string };
+    orderId?: { toString(): string };
+  },
 >(orders: T[], dispatches: D[], confirmBills: C[]) {
   const ordersByCustomer: Record<string, T[]> = {};
+  const orderCustomerMap = new Map<string, string>();
+
   for (const o of orders) {
-    const cid = (o as { customerId: { toString(): string } }).customerId.toString();
+    const cid = o.customerId.toString();
+    orderCustomerMap.set(o._id.toString(), cid);
     if (!ordersByCustomer[cid]) ordersByCustomer[cid] = [];
     ordersByCustomer[cid].push(o);
   }
 
   const dispatchesByCustomer: Record<string, D[]> = {};
   for (const d of dispatches) {
-    const cid = d.customerId?.toString();
+    let cid = d.customerId?.toString();
+    if (!cid && d.orderId) {
+      cid = orderCustomerMap.get(d.orderId.toString());
+    }
     if (!cid) continue;
     if (!dispatchesByCustomer[cid]) dispatchesByCustomer[cid] = [];
     dispatchesByCustomer[cid].push(d);
@@ -100,7 +129,11 @@ export function groupBillDocsByCustomer<
 
   const confirmByCustomer: Record<string, C[]> = {};
   for (const cb of confirmBills) {
-    const cid = cb.customerId.toString();
+    let cid = cb.customerId?.toString();
+    if (!cid && cb.orderId) {
+      cid = orderCustomerMap.get(cb.orderId.toString());
+    }
+    if (!cid) continue;
     if (!confirmByCustomer[cid]) confirmByCustomer[cid] = [];
     confirmByCustomer[cid].push(cb);
   }
@@ -135,6 +168,7 @@ export interface PortfolioStats {
 export function aggregatePortfolioStats(
   customers: Array<{
     _id: { toString(): string };
+    name: string;
     creditBalance?: number;
   }>,
   ordersByCustomer: Record<string, Array<Parameters<typeof mapOrderToBillInput>[0]>>,
@@ -151,18 +185,21 @@ export function aggregatePortfolioStats(
 
   for (const customer of customers) {
     const cid = customer._id.toString();
-    const bills = getBillsForCustomer(
+    const allBills = getBillsForCustomer(
       cid,
       ordersByCustomer,
       dispatchesByCustomer,
       confirmByCustomer
+    );
+    const bills = allBills.filter((b) =>
+      customerNamesMatch(b.customerName, customer.name)
     );
     const stats = getCustomerPaymentStats(bills, customer.creditBalance || 0);
 
     totalPending += stats.totalPending;
     totalAdvance += stats.creditBalance;
     totalPurchase += stats.totalPurchase;
-    totalPaid += stats.totalAdvance;
+    totalPaid += stats.totalCashPaid;
 
     if (stats.paymentStatus === "Fully Paid") paidClients += 1;
     else if (stats.paymentStatus === "Pending") pendingClients += 1;
@@ -178,4 +215,18 @@ export function aggregatePortfolioStats(
     pendingClients,
     advanceClients,
   };
+}
+
+/** Convenience: group raw docs then collect bills for one customer */
+export function billsFromGroupedDocs(
+  customerId: string,
+  orders: Parameters<typeof mapOrdersForCollect>[0],
+  dispatches: Parameters<typeof mapDispatchesForCollect>[0],
+  confirmBills: Parameters<typeof mapConfirmBillsForCollect>[0]
+): CustomerBillEntry[] {
+  return collectCustomerBills(
+    mapOrdersForCollect(orders),
+    mapDispatchesForCollect(dispatches),
+    mapConfirmBillsForCollect(confirmBills)
+  );
 }

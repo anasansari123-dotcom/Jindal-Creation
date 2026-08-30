@@ -114,13 +114,14 @@ export function calculateBillLineTotal(params: {
   pieceQty?: number;
   kgQty?: number;
   boxPrice: number;
+  piecePrice?: number;
   kgPrice?: number;
   piecesPerBox: number;
   discount?: number;
 }): BillLinePricing {
   const ppb = Math.max(params.piecesPerBox, 1);
   const boxPrice = params.boxPrice;
-  const piecePrice = piecePriceFromBox(boxPrice, ppb);
+  const piecePrice = params.piecePrice ?? piecePriceFromBox(boxPrice, ppb);
   const discount = params.discount || 0;
 
   const { sellMode, boxQty, pieceQty, kgQty } = normalizeSellInput(params);
@@ -247,6 +248,56 @@ export function enrichBillLineItem(item: {
     subtotal: Math.round(subtotal),
     total,
   };
+}
+
+type SalesLineItem = {
+  pieces?: number;
+  boxes?: number;
+  fullBoxes?: number;
+  loosePieces?: number;
+  piecesPerBox?: number;
+  unitPrice?: number;
+  sellMode?: SellMode;
+  quantity?: number;
+};
+
+function pricingFromSalesLine(item: SalesLineItem) {
+  return enrichBillLineItem({
+    pieces: item.pieces ?? 0,
+    boxes: item.boxes,
+    fullBoxes: item.fullBoxes,
+    loosePieces: item.loosePieces,
+    piecesPerBox: item.piecesPerBox,
+    unitPrice: item.unitPrice ?? 0,
+    sellMode: item.sellMode,
+    quantity: item.quantity,
+  });
+}
+
+/** Loose pieces sold separately from boxes (excludes pieces inside box sales). */
+export function loosePiecesSoldFromLine(item: SalesLineItem): number {
+  const pricing = pricingFromSalesLine(item);
+  if (pricing.sellMode === "kg") return 0;
+  return pricing.loosePieces;
+}
+
+/** Full boxes sold on a bill line (kg lines count as 0). */
+export function boxesSoldFromLine(item: SalesLineItem): number {
+  const pricing = pricingFromSalesLine(item);
+  if (pricing.sellMode === "kg") return 0;
+  return pricing.fullBoxes;
+}
+
+/** Bina-purchase shortfall as loose pieces only (excludes box-embedded pieces). */
+export function looseShortfallQty(
+  shortfallPieces: number,
+  item: SalesLineItem
+): number {
+  if (shortfallPieces <= 0) return 0;
+  const pricing = pricingFromSalesLine(item);
+  if (pricing.sellMode === "kg") return shortfallPieces;
+  if (pricing.loosePieces <= 0) return 0;
+  return Math.min(shortfallPieces, pricing.loosePieces);
 }
 
 /** Box or Piece label for a bill line */
@@ -464,17 +515,17 @@ export function enrichDispatchBill<T extends {
   });
 
   const subtotal = enrichedItems.reduce((s, i) => s + i.total, 0);
-  const discount = dispatch.discount || 0;
-  const total = subtotal - discount;
-  const advance = dispatch.advance ?? 0;
-  const pending = Math.max(0, total - advance);
 
+  // Persisted totals are source of truth for payments — only enrich line display
   return {
     ...dispatch,
     items: enrichedItems,
-    subtotal,
-    total,
-    pending,
+    subtotal: dispatch.subtotal ?? subtotal,
+    total: dispatch.total,
+    advance: dispatch.advance ?? 0,
+    pending:
+      dispatch.pending ??
+      Math.max(0, (dispatch.total ?? subtotal) - (dispatch.advance ?? 0)),
   };
 }
 

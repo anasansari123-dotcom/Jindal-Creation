@@ -4,10 +4,13 @@ import { forwardRef, type CSSProperties } from "react";
 import {
   formatCurrency,
   formatDate,
-  calcPendingAmount,
   formatPaymentStatusLabel,
   formatBillPaymentModeLabel,
 } from "@/lib/utils";
+import {
+  getBillPaymentDisplay,
+  formatBillPaymentFormula,
+} from "@/lib/bill-payment-display";
 import {
   enrichBillLineItem,
   expandItemsForBillDisplay,
@@ -64,6 +67,14 @@ export interface BillData {
   total: number;
   advance: number;
   pending: number;
+  /** Current bill amount before carried-forward pending */
+  currentBillAmount?: number;
+  carriedForwardPending?: number;
+  creditApplied?: number;
+  /** Overpayment saved to customer account */
+  creditAdded?: number;
+  /** Actual cash/UPI paid by customer */
+  cashPaid?: number;
   paymentStatus: string;
   paymentMode?: string;
   salespersonName: string;
@@ -93,10 +104,13 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
         : bill.orderType === "advance"
           ? "ADVANCE ORDER"
           : "DISPATCH BILL";
-    const customerPaid = bill.advance;
-    const pending = calcPendingAmount(bill.total, customerPaid);
+    const payment = getBillPaymentDisplay(bill);
+    const { cashPaid, creditAdded, pending, creditApplied: creditAppliedOnBill } = payment;
+    const currentBillAmount =
+      bill.currentBillAmount ?? Math.max(0, bill.subtotal - bill.discount);
+    const carriedForward = bill.carriedForwardPending || 0;
     const paymentStatus = formatPaymentStatusLabel(bill.paymentStatus);
-    const paymentModeLabel = formatBillPaymentModeLabel(bill.paymentMode, customerPaid);
+    const paymentModeLabel = formatBillPaymentModeLabel(bill.paymentMode, cashPaid);
     const displayItems = expandItemsForBillDisplay(bill.items ?? []);
 
     return (
@@ -213,24 +227,51 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                 <span>-{formatCurrency(bill.discount)}</span>
               </div>
             )}
+            {carriedForward > 0 && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span>Is Bill Ka Amount:</span>
+                  <span>{formatCurrency(currentBillAmount)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", color: C.gold, marginBottom: 4, fontWeight: 600 }}>
+                  <span>Purani Pending (Account):</span>
+                  <span>+{formatCurrency(carriedForward)}</span>
+                </div>
+              </>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 16, borderTop: `1px solid ${C.border}`, paddingTop: 4, marginBottom: 4 }}>
               <span>Grand Total:</span>
               <span>{formatCurrency(bill.total)}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: C.green700, marginBottom: 4 }}>
-              <span>Customer Paid:</span>
-              <span>{formatCurrency(customerPaid)}</span>
-            </div>
+            {cashPaid > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", color: C.green700, marginBottom: 4 }}>
+                <span>Customer Paid (Cash/UPI):</span>
+                <span>{formatCurrency(cashPaid)}</span>
+              </div>
+            )}
+            {(bill.creditApplied || 0) > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", color: C.green700, marginBottom: 4 }}>
+                <span>Account Advance Applied:</span>
+                <span>{formatCurrency(creditAppliedOnBill)}</span>
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
               <span>Payment Mode:</span>
               <span style={{ fontWeight: 500 }}>{paymentModeLabel}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: C.red600, fontWeight: 700, marginBottom: 4 }}>
-              <span>Pending:</span>
-              <span>{formatCurrency(pending)}</span>
-            </div>
+            {creditAdded > 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", color: C.gold, fontWeight: 700, marginBottom: 4 }}>
+                <span>Advance (Account me save):</span>
+                <span>{formatCurrency(creditAdded)}</span>
+              </div>
+            ) : (
+              <div style={{ display: "flex", justifyContent: "space-between", color: C.red600, fontWeight: 700, marginBottom: 4 }}>
+                <span>Pending:</span>
+                <span>{formatCurrency(pending)}</span>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: C.gray500, borderTop: `1px solid ${C.border}`, paddingTop: 4, marginBottom: 4 }}>
-              {formatCurrency(bill.total)} − {formatCurrency(customerPaid)} = {formatCurrency(pending)}
+              {formatBillPaymentFormula(payment)}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.gray500 }}>
               <span>Status:</span>

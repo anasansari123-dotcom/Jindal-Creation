@@ -24,5 +24,10 @@ export function apiError(error: unknown, status = 500) {
 }
 
 export function apiSuccess<T>(data: T, status = 200) {
-  return NextResponse.json(data, { status });
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
+  });
 }

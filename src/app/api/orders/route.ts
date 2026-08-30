@@ -45,17 +45,24 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50", 10);
 
     const { start, end, label: periodLabel } = periodRange(period, customDate || undefined);
-    const query = {
-      ...buildBaseQuery(search, status),
+    const periodQuery = {
       dispatchDate: { $gte: start, $lte: end },
+    };
+    const summaryQuery = {
+      ...buildBaseQuery(search, ""),
+      ...periodQuery,
+    };
+    const listQuery = {
+      ...buildBaseQuery(search, status),
+      ...periodQuery,
     };
 
     const skip = (page - 1) * limit;
 
     const [allInPeriodLean, dispatches, total] = await Promise.all([
-      Dispatch.find(query).select("billStatus total").lean(),
-      Dispatch.find(query).sort({ dispatchDate: -1 }).skip(skip).limit(limit).lean(),
-      Dispatch.countDocuments(query),
+      Dispatch.find(summaryQuery).select("billStatus total").lean(),
+      Dispatch.find(listQuery).sort({ dispatchDate: -1 }).skip(skip).limit(limit).lean(),
+      Dispatch.countDocuments(listQuery),
     ]);
 
     const summary = summarizeDispatchesLean(
@@ -65,7 +72,7 @@ export async function GET(request: NextRequest) {
 
     let dailyGroups: ReturnType<typeof groupOrdersByDay> = [];
     if (period === "week" || period === "month") {
-      const allFull = await Dispatch.find(query).sort({ dispatchDate: -1 }).lean();
+      const allFull = await Dispatch.find(summaryQuery).sort({ dispatchDate: -1 }).lean();
       dailyGroups = groupOrdersByDay(allFull.map((d) => dispatchToOrderEntry(d)));
     }
 

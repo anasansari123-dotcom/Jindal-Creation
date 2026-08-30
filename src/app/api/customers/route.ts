@@ -1,17 +1,15 @@
 import { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db/connect";
-import { Customer, Order, Dispatch, ConfirmBill } from "@/lib/models";
+import { Customer } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { customerSchema } from "@/lib/validations";
 import { generateCustomerId } from "@/lib/generators";
 import { logActivity } from "@/lib/activity";
 import { sanitizeSearchQuery } from "@/lib/utils";
-import { getCustomerPaymentStats } from "@/lib/customer-bills";
 import {
-  aggregatePortfolioStats,
-  getBillsForCustomer,
-  groupBillDocsByCustomer,
-} from "@/lib/crm-financials";
+  enrichCustomerPage,
+  loadAllEnrichedCustomers,
+} from "@/lib/portfolio.server";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth("customers");
@@ -19,11 +17,13 @@ export async function GET(request: NextRequest) {
 
   try {
     await connectDB();
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const paymentFilter = searchParams.get("paymentFilter") || "";
     const includePortfolio = searchParams.get("includePortfolio") === "true";
     const fetchAll = searchParams.get("all") === "true";
+    const lite = searchParams.get("lite") === "true";
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
     const sort = searchParams.get("sort") || "-createdAt";
@@ -39,73 +39,96 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const allCustomers = await Customer.find(query).sort(sort).lean();
-    const customerIds = allCustomers.map((c) => c._id);
+    const needsFullScan =
+      fetchAll || includePortfolio || !!paymentFilter;
 
-    const [orders, dispatches, confirmBills] = await Promise.all([
-      Order.find({ customerId: { $in: customerIds } }).lean(),
-      Dispatch.find({ customerId: { $in: customerIds } }).lean(),
-      ConfirmBill.find({ customerId: { $in: customerIds } }).lean(),
-    ]);
+    if (lite && !needsFullScan) {
+      const skip = (page - 1) * limit;
+      const [customers, total] = await Promise.all([
+        Customer.find(query)
+          .sort(sort)
+          .select("customerId name companyName phone city creditBalance createdAt")
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Customer.countDocuments(query),
+      ]);
 
-    const { ordersByCustomer, dispatchesByCustomer, confirmByCustomer } =
-      groupBillDocsByCustomer(orders, dispatches, confirmBills);
-
-    let enriched = allCustomers.map((c) => {
-      const cid = c._id.toString();
-      const bills = getBillsForCustomer(
-        cid,
-        ordersByCustomer,
-        dispatchesByCustomer,
-        confirmByCustomer
-      );
-      const stats = getCustomerPaymentStats(bills, c.creditBalance || 0);
-
-      return {
-        ...c,
-        totalAdvance: stats.totalAdvance,
-        totalPending: stats.totalPending,
-        totalPurchase: stats.totalPurchase,
-        creditBalance: stats.creditBalance,
-        paymentStatus: stats.paymentStatus,
-      };
-    });
-
-    if (paymentFilter === "paid") {
-      enriched = enriched.filter((c) => c.paymentStatus === "Fully Paid");
-    } else if (paymentFilter === "pending") {
-      enriched = enriched.filter((c) => c.paymentStatus === "Pending");
-    } else if (paymentFilter === "credit") {
-      enriched = enriched.filter((c) => (c.creditBalance || 0) > 0);
-    } else if (paymentFilter === "advance") {
-      enriched = enriched.filter(
-        (c) =>
-          c.paymentStatus === "Fully Paid" || c.paymentStatus === "Advance"
-      );
+      return apiSuccess({
+        customers,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      });
     }
 
-    const portfolio = aggregatePortfolioStats(
-      allCustomers,
-      ordersByCustomer,
-      dispatchesByCustomer,
-      confirmByCustomer
-    );
+    if (needsFullScan) {
+      const { customers: allEnriched, portfolio } = await loadAllEnrichedCustomers();
 
-    const total = enriched.length;
+      let enriched = search
+        ? allEnriched.filter((c) => {
+            const sanitized = sanitizeSearchQuery(search).toLowerCase();
+            const name = String(c.name || "").toLowerCase();
+            const customerId = String(c.customerId || "").toLowerCase();
+            const phone = String(c.phone || "").toLowerCase();
+            const companyName = String(c.companyName || "").toLowerCase();
+            return (
+              name.includes(sanitized) ||
+              customerId.includes(sanitized) ||
+              phone.includes(sanitized) ||
+              companyName.includes(sanitized)
+            );
+          })
+        : allEnriched;
+
+      if (paymentFilter === "paid") {
+        enriched = enriched.filter((c) => c.paymentStatus === "Fully Paid");
+      } else if (paymentFilter === "pending") {
+        enriched = enriched.filter((c) => c.paymentStatus === "Pending");
+      } else if (paymentFilter === "credit") {
+        enriched = enriched.filter((c) => (c.creditBalance || 0) > 0);
+      } else if (paymentFilter === "advance") {
+        enriched = enriched.filter(
+          (c) =>
+            c.paymentStatus === "Fully Paid" || c.paymentStatus === "Advance"
+        );
+      }
+
+      const total = enriched.length;
+      const skip = (page - 1) * limit;
+      const paginated = fetchAll ? enriched : enriched.slice(skip, skip + limit);
+
+      return apiSuccess({
+        customers: paginated,
+        pagination: {
+          page: fetchAll ? 1 : page,
+          limit: fetchAll ? total : limit,
+          total,
+          totalPages: fetchAll ? 1 : Math.ceil(total / limit),
+        },
+        ...(includePortfolio ? { portfolio } : {}),
+      });
+    }
+
     const skip = (page - 1) * limit;
-    const paginated = fetchAll
-      ? enriched
-      : enriched.slice(skip, skip + limit);
+    const [pageCustomers, total] = await Promise.all([
+      Customer.find(query).sort(sort).skip(skip).limit(limit).lean(),
+      Customer.countDocuments(query),
+    ]);
+
+    const enriched = await enrichCustomerPage(pageCustomers);
 
     return apiSuccess({
-      customers: paginated,
+      customers: enriched,
       pagination: {
-        page: fetchAll ? 1 : page,
-        limit: fetchAll ? total : limit,
+        page,
+        limit,
         total,
-        totalPages: fetchAll ? 1 : Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limit),
       },
-      ...(includePortfolio ? { portfolio } : {}),
     });
   } catch (error) {
     return apiError(error);

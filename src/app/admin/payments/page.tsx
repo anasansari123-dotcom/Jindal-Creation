@@ -42,7 +42,9 @@ interface CustomerRow {
   companyName?: string;
   phone?: string;
   city?: string;
-  totalAdvance: number;
+  totalAdvance?: number;
+  totalCashPaid?: number;
+  totalAppliedToBills?: number;
   totalPending: number;
   totalPurchase?: number;
   creditBalance?: number;
@@ -81,11 +83,11 @@ export default function PaymentsPage() {
   });
   const [paymentSummary, setPaymentSummary] = useState({
     paidClients: 0,
+    paidAmount: 0,
     pendingClients: 0,
+    pendingAmount: 0,
     creditClients: 0,
-    totalAdvance: 0,
-    totalPending: 0,
-    totalCredit: 0,
+    creditAmount: 0,
   });
 
   const [form, setForm] = useState({
@@ -98,18 +100,34 @@ export default function PaymentsPage() {
   });
 
   const fetchSummary = useCallback(async () => {
-    const res = await fetch("/api/customers?all=true&includePortfolio=true");
+    const res = await fetch("/api/portfolio/summary");
     const data = await res.json();
     const clients: CustomerRow[] = data.customers || [];
-    const portfolio = data.portfolio;
+
     setAllCustomers(clients);
+    if (data.summary) {
+      setPaymentSummary({
+        paidClients: data.summary.paidClients,
+        paidAmount: data.summary.paidAmount,
+        pendingClients: data.summary.pendingClients,
+        pendingAmount: data.summary.pendingAmount,
+        creditClients: data.summary.creditClients,
+        creditAmount: data.summary.creditAmount,
+      });
+      return;
+    }
+
+    const fullyPaid = clients.filter((c) => c.paymentStatus === "Fully Paid");
+    const pending = clients.filter((c) => c.paymentStatus === "Pending");
+    const withAdvance = clients.filter((c) => (c.creditBalance || 0) > 0 || (c.totalCashPaid || 0) > (c.totalPurchase || 0));
+
     setPaymentSummary({
-      paidClients: portfolio?.paidClients ?? clients.filter((c) => c.paymentStatus === "Fully Paid").length,
-      pendingClients: portfolio?.pendingClients ?? clients.filter((c) => c.paymentStatus === "Pending").length,
-      creditClients: portfolio?.advanceClients ?? clients.filter((c) => (c.creditBalance || 0) > 0).length,
-      totalAdvance: portfolio?.totalPaid ?? clients.reduce((s, c) => s + (c.totalAdvance || 0), 0),
-      totalPending: portfolio?.totalPending ?? clients.reduce((s, c) => s + (c.totalPending || 0), 0),
-      totalCredit: portfolio?.totalAdvance ?? clients.reduce((s, c) => s + (c.creditBalance || 0), 0),
+      paidClients: fullyPaid.length,
+      paidAmount: fullyPaid.reduce((s, c) => s + (c.totalPurchase || 0), 0),
+      pendingClients: pending.length,
+      pendingAmount: pending.reduce((s, c) => s + (c.totalPending || 0), 0),
+      creditClients: withAdvance.length,
+      creditAmount: withAdvance.reduce((s, c) => s + (c.creditBalance || 0), 0),
     });
   }, []);
 
@@ -150,7 +168,7 @@ export default function PaymentsPage() {
   useEffect(() => { fetchPayments(); }, [fetchPayments]);
 
   const openDialog = async () => {
-    const res = await fetch("/api/customers?limit=500");
+    const res = await fetch("/api/customers?lite=true&limit=500");
     const data = await res.json();
     setCustomers(data.customers || []);
     setForm({ customerId: "", amount: "", method: "Cash", date: "", referenceNumber: "", notes: "" });
@@ -225,11 +243,28 @@ export default function PaymentsPage() {
               ? "border-2 border-green-500 ring-2 ring-green-200 bg-green-50/50"
               : "border-green-200 hover:border-green-400"
           )}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500 uppercase">Fully Paid Clients</p>
-              <p className="text-2xl font-bold text-green-700 mt-1">{paymentSummary.paidClients}</p>
-              <p className="text-sm text-green-600 mt-1">Bill Payments: {formatCurrency(paymentSummary.totalAdvance)}</p>
-              <p className="text-xs text-gray-400 mt-2">Click karke list dekhein →</p>
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-green-800">Fully Paid Clients</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Sab bills clear</p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-4 border-t border-green-100 pt-4">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Clients</p>
+                  <p className="text-3xl font-bold text-green-700 tabular-nums leading-tight mt-1">
+                    {paymentSummary.paidClients}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Cleared</p>
+                  <p className="text-xl font-bold text-green-700 tabular-nums leading-tight mt-1">
+                    {formatCurrency(paymentSummary.paidAmount)}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Click karke list dekhein →</p>
             </CardContent>
           </Card>
         </button>
@@ -244,11 +279,28 @@ export default function PaymentsPage() {
               ? "border-2 border-red-500 ring-2 ring-red-200 bg-red-50/50"
               : "border-red-200 hover:border-red-400"
           )}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500 uppercase">Pending Payment</p>
-              <p className="text-2xl font-bold text-red-600 mt-1">{paymentSummary.pendingClients}</p>
-              <p className="text-sm text-red-500 mt-1">Total Pending: {formatCurrency(paymentSummary.totalPending)}</p>
-              <p className="text-xs text-gray-400 mt-2">Click karke list dekhein →</p>
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-red-700">Pending Payment</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Outstanding balance</p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-4 border-t border-red-100 pt-4">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Clients</p>
+                  <p className="text-3xl font-bold text-red-600 tabular-nums leading-tight mt-1">
+                    {paymentSummary.pendingClients}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pending</p>
+                  <p className="text-xl font-bold text-red-600 tabular-nums leading-tight mt-1">
+                    {formatCurrency(paymentSummary.pendingAmount)}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Click karke list dekhein →</p>
             </CardContent>
           </Card>
         </button>
@@ -263,11 +315,28 @@ export default function PaymentsPage() {
               ? "border-2 border-gold ring-2 ring-gold/30 bg-gold/10"
               : "border-gold/30 hover:border-gold/60"
           )}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500 uppercase">Advance</p>
-              <p className="text-2xl font-bold text-gold mt-1">{paymentSummary.creditClients}</p>
-              <p className="text-sm text-gold mt-1">Total Advance: {formatCurrency(paymentSummary.totalCredit)}</p>
-              <p className="text-xs text-gray-400 mt-2">Click karke list dekhein →</p>
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gold">Advance</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Extra payment credit</p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-4 border-t border-gold/20 pt-4">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Clients</p>
+                  <p className="text-3xl font-bold text-gold tabular-nums leading-tight mt-1">
+                    {paymentSummary.creditClients}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Advance</p>
+                  <p className="text-xl font-bold text-gold tabular-nums leading-tight mt-1">
+                    {formatCurrency(paymentSummary.creditAmount)}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Click karke list dekhein →</p>
             </CardContent>
           </Card>
         </button>
@@ -315,7 +384,9 @@ export default function PaymentsPage() {
                         </td>
                         <td className="py-3 text-gray-500">{c.phone || "—"}</td>
                         <td className="py-3">{formatCurrency(c.totalPurchase || 0)}</td>
-                        <td className="py-3 text-green-700">{formatCurrency(c.totalAdvance || 0)}</td>
+                        <td className="py-3 text-green-700 font-medium">
+                          {formatCurrency(c.totalCashPaid ?? ((c.totalPurchase || 0) - (c.totalPending || 0) + (c.creditBalance || 0)))}
+                        </td>
                         <td className="py-3 text-red-600 font-medium">{formatCurrency(c.totalPending || 0)}</td>
                         <td className="py-3 text-gold">{(c.creditBalance || 0) > 0 ? formatCurrency(c.creditBalance!) : "—"}</td>
                         <td className="py-3"><StatusBadge status={c.paymentStatus} /></td>

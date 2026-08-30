@@ -271,9 +271,12 @@ export default function OrdersPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-serif font-bold text-navy">Orders</h1>
+          <h1 className="text-2xl font-serif font-bold text-navy">Bills & Orders</h1>
           <p className="text-sm text-gray-500">
-            Dispatch Bill = Pending · Final Bill = Complete
+            Dispatch Bill = Pending stage · Final Bill = Complete ·{" "}
+            <Link href="/admin/dispatch" className="text-gold hover:underline">
+              All bills list
+            </Link>
           </p>
         </div>
         <Link href="/admin/dispatch/new">
@@ -333,18 +336,30 @@ export default function OrdersPage() {
                 : "border-2 border-amber-200 hover:border-amber-400"
             )}>
               <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-amber-800">Pending Orders</p>
                     <p className="text-xs text-gray-500 mt-0.5">{periodLabel} · Dispatch bills</p>
                   </div>
-                  <div className="rounded-full bg-amber-100 p-2">
+                  <div className="rounded-full bg-amber-100 p-2 shrink-0">
                     <Clock className="h-5 w-5 text-amber-700" />
                   </div>
                 </div>
-                <p className="text-4xl font-bold text-navy mt-3">{summary.pending}</p>
-                <p className="text-sm text-gray-600 mt-1">{formatCurrency(summary.pendingAmount)}</p>
-                <p className="text-xs text-gray-400 mt-2">Click karke list dekhein →</p>
+                <div className="mt-4 grid grid-cols-2 gap-4 border-t border-amber-100 pt-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Orders</p>
+                    <p className="text-3xl font-bold text-navy tabular-nums leading-tight mt-1">
+                      {summary.pending}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Amount</p>
+                    <p className="text-xl font-bold text-amber-800 tabular-nums leading-tight mt-1">
+                      {formatCurrency(summary.pendingAmount)}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-3">Click karke list dekhein →</p>
               </CardContent>
             </Card>
           </button>
@@ -357,18 +372,30 @@ export default function OrdersPage() {
                 : "border-2 border-green-200 hover:border-green-400"
             )}>
               <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-green-800">Completed Orders</p>
                     <p className="text-xs text-gray-500 mt-0.5">{periodLabel} · Final bills</p>
                   </div>
-                  <div className="rounded-full bg-green-100 p-2">
+                  <div className="rounded-full bg-green-100 p-2 shrink-0">
                     <CheckCircle2 className="h-5 w-5 text-green-700" />
                   </div>
                 </div>
-                <p className="text-4xl font-bold text-navy mt-3">{summary.completed}</p>
-                <p className="text-sm text-gray-600 mt-1">{formatCurrency(summary.completedAmount)}</p>
-                <p className="text-xs text-gray-400 mt-2">Click karke list dekhein →</p>
+                <div className="mt-4 grid grid-cols-2 gap-4 border-t border-green-100 pt-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Orders</p>
+                    <p className="text-3xl font-bold text-navy tabular-nums leading-tight mt-1">
+                      {summary.completed}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Amount</p>
+                    <p className="text-xl font-bold text-green-700 tabular-nums leading-tight mt-1">
+                      {formatCurrency(summary.completedAmount)}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-3">Click karke list dekhein →</p>
               </CardContent>
             </Card>
           </button>
@@ -381,18 +408,30 @@ export default function OrdersPage() {
                 : "border-2 border-navy/20 bg-navy/5 hover:border-navy/40"
             )}>
               <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-navy">Total Orders</p>
                     <p className="text-xs text-gray-500 mt-0.5">{periodLabel} · Pending + Complete</p>
                   </div>
-                  <div className="rounded-full bg-navy/10 p-2">
+                  <div className="rounded-full bg-navy/10 p-2 shrink-0">
                     <ShoppingCart className="h-5 w-5 text-navy" />
                   </div>
                 </div>
-                <p className="text-4xl font-bold text-navy mt-3">{summary.total}</p>
-                <p className="text-sm font-semibold text-green-700 mt-1">{formatCurrency(summary.totalAmount)}</p>
-                <p className="text-xs text-gray-400 mt-2">Click karke sab orders dekhein →</p>
+                <div className="mt-4 grid grid-cols-2 gap-4 border-t border-navy/10 pt-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Orders</p>
+                    <p className="text-3xl font-bold text-navy tabular-nums leading-tight mt-1">
+                      {summary.total}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Amount</p>
+                    <p className="text-xl font-bold text-navy tabular-nums leading-tight mt-1">
+                      {formatCurrency(summary.totalAmount)}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-3">Click karke sab orders dekhein →</p>
               </CardContent>
             </Card>
           </button>

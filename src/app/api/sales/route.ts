@@ -55,13 +55,15 @@ export async function GET(request: NextRequest) {
     const query = { dispatchDate: { $gte: start, $lte: end } };
 
     const skip = (page - 1) * limit;
-    const [allDispatches, paginatedDispatches, total] = await Promise.all([
-      Dispatch.find(query).lean(),
+    const [statsDispatches, paginatedDispatches, total] = await Promise.all([
+      Dispatch.find(query)
+        .select("total advance pending cashPaid creditAdded creditApplied items billStatus dispatchId finalBillId customerName paymentStatus dispatchDate salespersonName")
+        .lean(),
       Dispatch.find(query).sort({ dispatchDate: -1 }).skip(skip).limit(limit).lean(),
       Dispatch.countDocuments(query),
     ]);
 
-    const stats = summarizeDispatchSales(enrichDispatchesList(allDispatches));
+    const stats = summarizeDispatchSales(enrichDispatchesList(statsDispatches));
     const orders = enrichDispatchesList(paginatedDispatches).map(dispatchToSalesRow);
 
     return apiSuccess({

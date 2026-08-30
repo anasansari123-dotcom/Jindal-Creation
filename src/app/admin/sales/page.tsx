@@ -25,7 +25,7 @@ interface SalesStats {
   totalOrders: number;
   totalPieces: number;
   totalBoxes: number;
-  totalAdvance: number;
+  totalCashPaid: number;
   totalPending: number;
 }
 
@@ -34,7 +34,7 @@ interface Order {
   orderId: string;
   customerName: string;
   total: number;
-  advance: number;
+  cashPaid: number;
   pending: number;
   paymentStatus: string;
   status: string;
@@ -46,10 +46,10 @@ interface Order {
 
 const statCards = [
   { key: "totalSales", label: "Total Sales", icon: DollarSign, format: "currency" },
-  { key: "totalOrders", label: "Orders", icon: ShoppingCart, format: "number" },
-  { key: "totalPieces", label: "Pieces Sold", icon: Package, format: "number" },
+  { key: "totalOrders", label: "Bills", icon: ShoppingCart, format: "number" },
+  { key: "totalPieces", label: "Loose Pcs Sold", icon: Package, format: "number" },
   { key: "totalBoxes", label: "Boxes Sold", icon: Box, format: "number" },
-  { key: "totalAdvance", label: "Customer Paid (Period)", icon: Wallet, format: "currency" },
+  { key: "totalCashPaid", label: "Customer Paid (Period)", icon: Wallet, format: "currency" },
   { key: "totalPending", label: "Bill Pending (Period)", icon: AlertTriangle, format: "currency" },
 ] as const;
 
@@ -217,7 +217,7 @@ export default function SalesPage() {
                         </td>
                         <td className="py-3">{order.customerName}</td>
                         <td className="py-3">{formatCurrency(order.total)}</td>
-                        <td className="py-3">{formatCurrency(order.advance)}</td>
+                        <td className="py-3">{formatCurrency(order.cashPaid)}</td>
                         <td className="py-3">{formatCurrency(order.pending)}</td>
                         <td className="py-3"><StatusBadge status={order.paymentStatus} /></td>
                         <td className="py-3"><StatusBadge status={order.fulfillmentLabel} /></td>

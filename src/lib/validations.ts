@@ -20,6 +20,19 @@ export const customerSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const quickProductSchema = z.object({
+  name: z.string().min(1, "Product name is required"),
+  productId: z
+    .string()
+    .min(1, "Product number is required")
+    .max(32)
+    .transform((v) => v.trim()),
+  category: z.string().min(1, "Category is required"),
+  sellingUnit: z.enum(["box", "piece", "kg"]).default("box"),
+  sellingPrice: z.coerce.number().min(0),
+  piecesPerBox: z.coerce.number().min(1).default(1),
+});
+
 export const productSchema = z.object({
   productId: z
     .string()

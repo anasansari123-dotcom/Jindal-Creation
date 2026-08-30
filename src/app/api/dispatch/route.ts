@@ -4,12 +4,17 @@ import { Dispatch, Customer, Product } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { dispatchBillSchema } from "@/lib/validations/dispatch";
 import { generateDispatchId } from "@/lib/generators";
-import { buildDispatchItems, computeBillTotals } from "@/lib/services/dispatch-bill";
+import { buildDispatchItems, computeBillTotals, linkDispatchToCustomer } from "@/lib/services/dispatch-bill";
 import { enrichDispatchBill } from "@/lib/bill-pricing";
 import { logActivity } from "@/lib/activity";
 import { getPaymentStatus } from "@/lib/utils";
 import { enrichDispatchesPaymentModes, resolveBillPaymentMode } from "@/lib/bill-payment-mode";
-import { applyCreditToNewBill } from "@/lib/payment-allocation";
+import { applyDispatchBillPayment } from "@/lib/payment-allocation";
+import { computeDispatchBillTotals } from "@/lib/dispatch-bill-totals";
+import {
+  getCustomerAccountBalance,
+  transferPendingToNewBill,
+} from "@/lib/bill-account-balance";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth("dispatch");
@@ -69,6 +74,7 @@ export async function POST(request: NextRequest) {
     let customer = null;
     if (parsed.data.customerId) {
       customer = await Customer.findById(parsed.data.customerId);
+      if (!customer) return apiError("Customer not found", 404);
     }
 
     const productIds = parsed.data.items.map((i) => i.productId);
@@ -84,9 +90,25 @@ export async function POST(request: NextRequest) {
     }
 
     const subtotal = dispatchItems.reduce((s, i) => s + i.total, 0);
-    const { discount, total } = computeBillTotals(subtotal, parsed.data.discount || 0);
-    const advance = parsed.data.advance || 0;
-    const pending = Math.max(0, total - advance);
+    const { discount } = computeBillTotals(subtotal, parsed.data.discount || 0);
+    const cashPaid = parsed.data.advance || 0;
+
+    const customerIdStr = customer?._id?.toString();
+    let carriedForwardPending = 0;
+    if (
+      customerIdStr &&
+      parsed.data.includeCarriedForward !== false
+    ) {
+      const balance = await getCustomerAccountBalance(customerIdStr);
+      carriedForwardPending = balance?.pendingFromOldBills ?? 0;
+    }
+
+    const totals = computeDispatchBillTotals({
+      subtotal,
+      discount,
+      carriedForwardPending,
+      cashPaid,
+    });
 
     const dispatchId = await generateDispatchId();
     const dispatchDate = parsed.data.dispatchDate
@@ -105,7 +127,7 @@ export async function POST(request: NextRequest) {
       orderType,
       readyByDate,
       customerId: customer?._id,
-      customerName: parsed.data.customerName,
+      customerName: customer?.name || parsed.data.customerName,
       customerCode: customer?.customerId,
       customerCompany: parsed.data.customerCompany || customer?.companyName,
       customerPhone: parsed.data.customerPhone || customer?.phone,
@@ -115,11 +137,16 @@ export async function POST(request: NextRequest) {
       dispatchDate,
       subtotal,
       discount,
-      total,
-      advance,
-      pending,
-      paymentStatus: getPaymentStatus(total, advance),
-      paymentMode: advance > 0 ? parsed.data.paymentMode || "Cash" : undefined,
+      currentBillAmount: totals.currentBillAmount,
+      carriedForwardPending: totals.carriedForwardPending,
+      creditApplied: 0,
+      creditAdded: totals.creditAdded,
+      cashPaid,
+      total: totals.total,
+      advance: totals.billPaid,
+      pending: totals.pending,
+      paymentStatus: getPaymentStatus(totals.total, totals.billPaid),
+      paymentMode: cashPaid > 0 ? parsed.data.paymentMode || "Cash" : undefined,
       inventoryDeducted: false,
       verifiedBy: auth.user.id,
       verifiedByName: auth.user.name,
@@ -132,47 +159,53 @@ export async function POST(request: NextRequest) {
           date: dispatchDate,
           note:
             orderType === "advance" && readyByDate
-              ? `Advance order — maal ready by ${readyByDate.toLocaleDateString("en-IN")}, advance ₹${advance}`
+              ? `Advance order — maal ready by ${readyByDate.toLocaleDateString("en-IN")}, advance ₹${cashPaid}`
               : "Dispatch bill create hui — order pending me",
           byName: salespersonName,
         },
       ],
     });
 
+    await linkDispatchToCustomer(dispatch, auth.user, { createIfMissing: true });
+
+    if (customerIdStr && carriedForwardPending > 0) {
+      await transferPendingToNewBill({
+        customerId: customerIdStr,
+        customerName: dispatch.customerName,
+        targetDispatchId: dispatch._id.toString(),
+        targetDispatchCode: dispatchId,
+        user: auth.user,
+      });
+    }
+
     await logActivity(
       auth.user,
       orderType === "advance" ? "Advance Order" : "Order Pending",
       orderType === "advance"
-        ? `Advance order ${dispatchId} — ready by ${readyByDate?.toLocaleDateString("en-IN")}, advance ₹${advance}`
+        ? `Advance order ${dispatchId} — ready by ${readyByDate?.toLocaleDateString("en-IN")}, advance ₹${cashPaid}`
         : `Dispatch bill ${dispatchId} created — order pending for ${parsed.data.customerName}`,
       dispatchId,
       "order"
     );
 
-    if (customer?._id && pending > 0) {
-      await applyCreditToNewBill({
-        customerId: customer._id.toString(),
-        billRef: dispatch._id.toString(),
-        billSource: "Dispatch",
-        billTotal: total,
-        existingPaid: advance,
-      });
-      const updated = await Dispatch.findById(dispatch._id).lean();
-      const paymentMode = await resolveBillPaymentMode(
-        String(dispatch._id),
-        updated?.paymentMode ?? dispatch.paymentMode,
-        updated?.advance ?? dispatch.advance
-      );
-      const enriched = enrichDispatchBill({ ...(updated || dispatch.toObject()), paymentMode });
-      return apiSuccess({ dispatch: enriched }, 201);
-    }
+    const linkedCustomerId =
+      dispatch.customerId?.toString() || customerIdStr;
 
+    await applyDispatchBillPayment({
+      billRef: dispatch._id.toString(),
+      billTotal: totals.total,
+      cashPaid,
+      customerId: linkedCustomerId,
+      paymentMode: cashPaid > 0 ? parsed.data.paymentMode || "Cash" : undefined,
+    });
+
+    const updated = await Dispatch.findById(dispatch._id).lean();
     const paymentMode = await resolveBillPaymentMode(
       String(dispatch._id),
-      dispatch.paymentMode,
-      dispatch.advance
+      updated?.paymentMode ?? dispatch.paymentMode,
+      updated?.advance ?? dispatch.advance
     );
-    const enriched = enrichDispatchBill({ ...dispatch.toObject(), paymentMode });
+    const enriched = enrichDispatchBill({ ...(updated || dispatch.toObject()), paymentMode });
     return apiSuccess({ dispatch: enriched }, 201);
   } catch (error) {
     return apiError(error);

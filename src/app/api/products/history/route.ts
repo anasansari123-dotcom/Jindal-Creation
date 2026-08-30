@@ -1,9 +1,14 @@
 import { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db/connect";
-import { Product, Order, Dispatch, ConfirmBill } from "@/lib/models";
+import { Product, Order, Dispatch, ConfirmBill, InventoryTransaction } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { sanitizeSearchQuery } from "@/lib/utils";
-import { buildProductHistory, summarizeProductHistory } from "@/lib/product-history";
+import {
+  buildProductHistory,
+  summarizeProductHistory,
+  enrichHistoryWithOversales,
+} from "@/lib/product-history";
+import { formatProductStock } from "@/lib/product-units";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth("products");
@@ -25,10 +30,25 @@ export async function GET(request: NextRequest) {
     }
 
     const products = await Product.find(query).sort({ name: 1 }).lean();
+    if (products.length === 0) {
+      return apiSuccess({ products: [] });
+    }
+
+    const productIds = products.map((p) => p._id);
+    const productCodes = products.map((p) => p.productId);
+    const billItemFilter = {
+      $or: [
+        { "items.productId": { $in: productIds } },
+        { "items.productCode": { $in: productCodes } },
+      ],
+    };
+    const billFields =
+      "orderId orderDate customerId customerName customerCode items dispatchId finalBillId billStatus dispatchDate confirmBillId confirmDate";
+
     const [orders, dispatches, confirmBills] = await Promise.all([
-      Order.find({}).lean(),
-      Dispatch.find({}).lean(),
-      ConfirmBill.find({}).lean(),
+      Order.find(billItemFilter).select(billFields).lean(),
+      Dispatch.find(billItemFilter).select(billFields).lean(),
+      ConfirmBill.find(billItemFilter).select(billFields).lean(),
     ]);
 
     const orderDocs = orders.map((o) => ({
@@ -65,22 +85,49 @@ export async function GET(request: NextRequest) {
       items: cb.items,
     }));
 
+    const oversaleTxs = await InventoryTransaction.find({
+      productId: { $in: productIds },
+      soldWithoutPurchase: true,
+    })
+      .select("productId orderId shortfallQty soldWithoutPurchase")
+      .lean();
+
+    const oversalesByProduct = new Map<string, typeof oversaleTxs>();
+    for (const tx of oversaleTxs) {
+      const pid = tx.productId.toString();
+      const list = oversalesByProduct.get(pid) || [];
+      list.push(tx);
+      oversalesByProduct.set(pid, list);
+    }
+
     const productsWithHistory = products.map((p) => {
-      const history = buildProductHistory(
-        p._id.toString(),
-        p.productId,
-        orderDocs,
-        dispatchDocs,
-        confirmDocs
+      const pid = p._id.toString();
+      const history = enrichHistoryWithOversales(
+        buildProductHistory(
+          pid,
+          p.productId,
+          orderDocs,
+          dispatchDocs,
+          confirmDocs
+        ),
+        oversalesByProduct.get(pid) || []
       );
-      const summary = summarizeProductHistory(history);
+      const summary = summarizeProductHistory(history, p.currentStock);
       return {
-        _id: p._id.toString(),
+        _id: pid,
         productId: p.productId,
         name: p.name,
         category: p.category,
         piecesPerBox: p.piecesPerBox,
+        sellingUnit: p.sellingUnit,
+        unit: p.unit,
         currentStock: p.currentStock,
+        stockDisplay: formatProductStock({
+          currentStock: p.currentStock,
+          piecesPerBox: p.piecesPerBox || 1,
+          sellingUnit: p.sellingUnit,
+          unit: p.unit,
+        }),
         ...summary,
       };
     });

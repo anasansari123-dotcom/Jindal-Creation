@@ -21,10 +21,17 @@ export function AdminShell({
 
   return (
     <div className="flex min-h-screen bg-gray-50">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <AdminSidebar user={user} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AdminHeader user={user} onLogout={handleLogout} />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pt-16 sm:p-5 lg:p-6 lg:pt-6">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 overflow-y-auto overflow-x-hidden p-4 pt-16 sm:p-5 lg:p-6 lg:pt-6 focus:outline-none"
+        >
           <div className="mx-auto w-full max-w-[1600px]">{children}</div>
         </main>
       </div>

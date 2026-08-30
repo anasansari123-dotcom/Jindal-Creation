@@ -9,6 +9,8 @@ interface SearchInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  id?: string;
+  label?: string;
 }
 
 export function SearchInput({
@@ -16,11 +18,18 @@ export function SearchInput({
   onChange,
   placeholder = "Search...",
   className,
+  id = "search-input",
+  label = "Search",
 }: SearchInputProps) {
   return (
     <div className={cn("relative", className)}>
-      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      <label htmlFor={id} className="sr-only">
+        {label}
+      </label>
+      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" aria-hidden="true" />
       <Input
+        id={id}
+        type="search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

@@ -40,6 +40,7 @@ const CustomerSchema = new Schema<ICustomer>(
 
 CustomerSchema.index({ customerId: 1 });
 CustomerSchema.index({ phone: 1 });
+CustomerSchema.index({ createdAt: -1 });
 CustomerSchema.index({ name: "text", companyName: "text", customerId: "text" });
 
 export const Customer: Model<ICustomer> =

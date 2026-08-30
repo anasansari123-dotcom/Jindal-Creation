@@ -1,8 +1,13 @@
 import { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db/connect";
-import { Product, Order, Dispatch, ConfirmBill } from "@/lib/models";
+import { Product, Order, Dispatch, ConfirmBill, InventoryTransaction } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
-import { buildProductHistory, summarizeProductHistory } from "@/lib/product-history";
+import {
+  buildProductHistory,
+  summarizeProductHistory,
+  enrichHistoryWithOversales,
+} from "@/lib/product-history";
+import { formatProductStock } from "@/lib/product-units";
 
 export async function GET(
   _request: NextRequest,
@@ -41,40 +46,48 @@ export async function GET(
     const allDispatches = mergeUnique(dispatches, dispatchesByCode);
     const allConfirms = mergeUnique(confirmBills, confirmsByCode);
 
-    const history = buildProductHistory(
-      product._id.toString(),
-      product.productId,
-      allOrders.map((o) => ({
-        _id: o._id,
-        orderId: o.orderId,
-        orderDate: o.orderDate,
-        customerId: o.customerId,
-        customerName: o.customerName,
-        customerCode: o.customerCode,
-        items: o.items,
-      })),
-      allDispatches.map((d) => ({
-        _id: d._id,
-        dispatchId: d.dispatchId,
-        finalBillId: d.finalBillId,
-        billStatus: d.billStatus,
-        orderId: d.orderId,
-        customerId: d.customerId,
-        customerName: d.customerName,
-        customerCode: d.customerCode,
-        dispatchDate: d.dispatchDate,
-        items: d.items,
-      })),
-      allConfirms.map((cb) => ({
-        _id: cb._id,
-        confirmBillId: cb.confirmBillId,
-        orderId: cb.orderId,
-        confirmDate: cb.confirmDate,
-        customerId: cb.customerId,
-        customerName: cb.customerName,
-        customerCode: cb.customerCode,
-        items: cb.items,
-      }))
+    const history = enrichHistoryWithOversales(
+      buildProductHistory(
+        product._id.toString(),
+        product.productId,
+        allOrders.map((o) => ({
+          _id: o._id,
+          orderId: o.orderId,
+          orderDate: o.orderDate,
+          customerId: o.customerId,
+          customerName: o.customerName,
+          customerCode: o.customerCode,
+          items: o.items,
+        })),
+        allDispatches.map((d) => ({
+          _id: d._id,
+          dispatchId: d.dispatchId,
+          finalBillId: d.finalBillId,
+          billStatus: d.billStatus,
+          orderId: d.orderId,
+          customerId: d.customerId,
+          customerName: d.customerName,
+          customerCode: d.customerCode,
+          dispatchDate: d.dispatchDate,
+          items: d.items,
+        })),
+        allConfirms.map((cb) => ({
+          _id: cb._id,
+          confirmBillId: cb.confirmBillId,
+          orderId: cb.orderId,
+          confirmDate: cb.confirmDate,
+          customerId: cb.customerId,
+          customerName: cb.customerName,
+          customerCode: cb.customerCode,
+          items: cb.items,
+        }))
+      ),
+      await InventoryTransaction.find({
+        productId: product._id,
+        soldWithoutPurchase: true,
+      })
+        .select("orderId shortfallQty soldWithoutPurchase")
+        .lean()
     );
 
     return apiSuccess({
@@ -84,10 +97,18 @@ export async function GET(
         name: product.name,
         category: product.category,
         piecesPerBox: product.piecesPerBox,
+        sellingUnit: product.sellingUnit,
+        unit: product.unit,
         currentStock: product.currentStock,
+        stockDisplay: formatProductStock({
+          currentStock: product.currentStock,
+          piecesPerBox: product.piecesPerBox || 1,
+          sellingUnit: product.sellingUnit,
+          unit: product.unit,
+        }),
       },
       history,
-      summary: summarizeProductHistory(history),
+      summary: summarizeProductHistory(history, product.currentStock),
     });
   } catch (error) {
     return apiError(error);

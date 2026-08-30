@@ -3,13 +3,13 @@ import { connectDB } from "@/lib/db/connect";
 import { Dispatch, Customer, Product } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { generateConfirmBillId } from "@/lib/generators";
-import { buildDispatchItems, computeBillTotals, finalizeDispatchBill } from "@/lib/services/dispatch-bill";
+import { buildDispatchItems, computeBillTotals, finalizeDispatchBill, ensureCustomerForFinalBill, applyCustomerToDispatch, linkDispatchToCustomer } from "@/lib/services/dispatch-bill";
 import { enrichDispatchBill } from "@/lib/bill-pricing";
 import { resolveBillPaymentMode } from "@/lib/bill-payment-mode";
-import { getPaymentStatus } from "@/lib/utils";
 import { logActivity } from "@/lib/activity";
 import { ConfirmBill } from "@/lib/models/ConfirmBill";
 import { dispatchBillSchema } from "@/lib/validations/dispatch";
+import { applyDispatchBillPayment } from "@/lib/payment-allocation";
 
 export async function GET(
   _request: NextRequest,
@@ -54,11 +54,16 @@ export async function POST(
     if (!existing) return apiError("Dispatch bill not found", 404);
 
     if (existing.inventoryDeducted) {
-      return apiError("Stock already deducted for this bill", 400);
+      const updated = await Dispatch.findById(id).lean();
+      return apiSuccess({
+        dispatch: updated,
+        message: "Final Bill pehle se complete hai — stock already deducted.",
+      });
     }
 
     if (existing.billStatus === "FINAL" && !existing.inventoryDeducted) {
       const finalBillId = existing.finalBillId || (await generateConfirmBillId());
+      await ensureCustomerForFinalBill(existing, auth.user);
       await finalizeDispatchBill(id, finalBillId, auth.user);
       const updated = await Dispatch.findById(id).lean();
       return apiSuccess({
@@ -68,42 +73,31 @@ export async function POST(
     }
 
     if (existing.billStatus === "FINAL") {
-      return apiError("This bill is already converted to Final Bill", 400);
+      const updated = await Dispatch.findById(id).lean();
+      return apiSuccess({
+        dispatch: updated,
+        message: "Final Bill pehle se complete hai.",
+      });
     }
 
-    if (!existing.customerId) {
-      return apiError(
-        "Final bill ke liye customer select karein. Bill edit karke customer add karein.",
-        400
-      );
-    }
+    await ensureCustomerForFinalBill(existing, auth.user);
 
     const finalBillId = await generateConfirmBillId();
     const dispatch = await finalizeDispatchBill(id, finalBillId, auth.user);
 
-    const existingConfirm = await ConfirmBill.findOne({ confirmBillId: finalBillId }).lean();
-    if (!existingConfirm) {
-      await ConfirmBill.create({
-        confirmBillId: finalBillId,
-        orderId: dispatch._id,
-        orderCode: dispatch.dispatchId,
-        customerId: dispatch.customerId,
-        customerName: dispatch.customerName,
-        customerCode: dispatch.customerCode || "WALK-IN",
-        items: dispatch.items,
-        confirmDate: dispatch.convertedAt || new Date(),
-        subtotal: dispatch.subtotal,
-        discount: dispatch.discount,
-        total: dispatch.total,
-        advance: dispatch.advance,
-        pending: dispatch.pending,
-        paymentStatus: dispatch.paymentStatus,
-        confirmedBy: auth.user.id,
-        confirmedByName: auth.user.name,
-        salespersonName: dispatch.salespersonName,
-        inventoryDeducted: true,
-      });
-    }
+    await ConfirmBill.updateOne(
+      { confirmBillId: finalBillId },
+      {
+        $set: {
+          advance: dispatch.advance,
+          pending: dispatch.pending,
+          paymentStatus: dispatch.paymentStatus,
+          customerName: dispatch.customerName,
+          customerCode: dispatch.customerCode || "WALK-IN",
+          total: dispatch.total,
+        },
+      }
+    );
 
     await logActivity(
       auth.user,
@@ -154,6 +148,7 @@ export async function PUT(
     let customer = null;
     if (parsed.data.customerId) {
       customer = await Customer.findById(parsed.data.customerId);
+      if (!customer) return apiError("Customer not found", 404);
     }
 
     const productIds = parsed.data.items.map((i) => i.productId);
@@ -166,17 +161,25 @@ export async function PUT(
     );
 
     const subtotal = dispatchItems.reduce((s, i) => s + i.total, 0);
-    const { discount, total } = computeBillTotals(subtotal, parsed.data.discount || 0);
-    const advance = parsed.data.advance ?? dispatch.advance ?? 0;
-    const pending = Math.max(0, total - advance);
+    const { discount } = computeBillTotals(subtotal, parsed.data.discount || 0);
+    const cashPaid = parsed.data.advance ?? 0;
+    const previousCreditAdded = dispatch.creditAdded || 0;
+    const previousCreditApplied = dispatch.creditApplied || 0;
+    const carriedForwardPending = dispatch.carriedForwardPending || 0;
 
-    dispatch.customerId = customer?._id ?? dispatch.customerId;
-    dispatch.customerName = parsed.data.customerName;
-    dispatch.customerCode = customer?.customerId ?? dispatch.customerCode;
-    dispatch.customerCompany = parsed.data.customerCompany || customer?.companyName;
-    dispatch.customerPhone = parsed.data.customerPhone || customer?.phone;
-    dispatch.customerAddress = parsed.data.customerAddress || customer?.address;
-    dispatch.customerCity = parsed.data.customerCity || customer?.city;
+    const currentBillAmount = Math.max(0, subtotal - discount);
+    const billTotal = currentBillAmount + carriedForwardPending;
+
+    if (customer) {
+      applyCustomerToDispatch(dispatch, customer);
+    } else {
+      dispatch.customerName = parsed.data.customerName;
+      dispatch.customerCode = dispatch.customerCode;
+      dispatch.customerCompany = parsed.data.customerCompany;
+      dispatch.customerPhone = parsed.data.customerPhone;
+      dispatch.customerAddress = parsed.data.customerAddress;
+      dispatch.customerCity = parsed.data.customerCity;
+    }
     dispatch.items = dispatchItems;
     dispatch.dispatchDate = parsed.data.dispatchDate
       ? new Date(parsed.data.dispatchDate)
@@ -190,11 +193,9 @@ export async function PUT(
           : dispatch.readyByDate;
     dispatch.subtotal = subtotal;
     dispatch.discount = discount;
-    dispatch.total = total;
-    dispatch.advance = advance;
-    dispatch.pending = pending;
-    dispatch.paymentStatus = getPaymentStatus(total, advance);
-    dispatch.paymentMode = advance > 0 ? parsed.data.paymentMode || dispatch.paymentMode || "Cash" : undefined;
+    dispatch.currentBillAmount = currentBillAmount;
+    dispatch.carriedForwardPending = carriedForwardPending;
+    dispatch.total = billTotal;
     dispatch.salespersonName = parsed.data.salespersonName?.trim() || dispatch.salespersonName;
     dispatch.notes = parsed.data.notes;
 
@@ -209,6 +210,20 @@ export async function PUT(
 
     await dispatch.save();
 
+    await linkDispatchToCustomer(dispatch, auth.user, { createIfMissing: false });
+
+    const linkedCustomerId = dispatch.customerId?.toString() || customer?._id?.toString();
+    await applyDispatchBillPayment({
+      billRef: dispatch._id.toString(),
+      billTotal,
+      cashPaid,
+      customerId: linkedCustomerId,
+      previousCreditAdded,
+      previousCreditApplied,
+      paymentMode:
+        cashPaid > 0 ? parsed.data.paymentMode || dispatch.paymentMode || "Cash" : undefined,
+    });
+
     await logActivity(
       auth.user,
       "Dispatch Updated",
@@ -217,15 +232,15 @@ export async function PUT(
       "order"
     );
 
+    const fresh = await Dispatch.findById(id).lean();
+    if (!fresh) return apiError("Dispatch bill not found", 404);
+
     const paymentMode = await resolveBillPaymentMode(
-      String(dispatch._id),
-      dispatch.paymentMode,
-      dispatch.advance
+      String(fresh._id),
+      fresh.paymentMode,
+      fresh.advance
     );
-    const enriched = enrichDispatchBill({
-      ...dispatch.toObject(),
-      paymentMode,
-    });
+    const enriched = enrichDispatchBill({ ...fresh, paymentMode });
 
     return apiSuccess({ dispatch: enriched });
   } catch (error) {

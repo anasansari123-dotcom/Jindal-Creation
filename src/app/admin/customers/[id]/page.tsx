@@ -22,6 +22,7 @@ import { BillItemsTable } from "@/components/bill-items-table";
 import { dispatchToBillData } from "@/lib/bill-export";
 import { toBillItemRow } from "@/lib/bill-pricing";
 import { previewPaymentAllocation, type CustomerBillEntry } from "@/lib/customer-bills";
+import { getDisplayBillId } from "@/lib/bill-display";
 import type { PaymentSummary } from "@/lib/payment-ledger";
 import type { BillData } from "@/components/bill-preview";
 
@@ -59,6 +60,9 @@ interface DispatchRecord {
   total: number;
   advance: number;
   pending: number;
+  cashPaid?: number;
+  creditAdded?: number;
+  creditApplied?: number;
   paymentStatus: string;
   paymentMode?: string;
   salespersonName: string;
@@ -92,10 +96,13 @@ interface CustomerData {
   paymentLedger: PaymentSummary;
   stats: {
     totalPending: number;
-    totalAdvance: number;
+    totalAdvance?: number;
+    totalCashPaid?: number;
+    totalAppliedToBills?: number;
     totalPurchase: number;
     creditBalance: number;
     paymentStatus: string;
+    totalClientPaid?: number;
   };
 }
 
@@ -256,7 +263,7 @@ export default function CustomerDetailPage() {
 
   const editPayPreview =
     editPaymentAmount && parseFloat(editPaymentAmount) > 0
-      ? previewPaymentAllocation(bills, parseFloat(editPaymentAmount))
+      ? previewPaymentAllocation(bills, parseFloat(editPaymentAmount), stats.creditBalance || 0)
       : null;
 
   const dispatchToBill = (d: DispatchRecord): BillData =>
@@ -292,19 +299,34 @@ export default function CustomerDetailPage() {
         <div>
           <div className="flex items-center gap-2">
             <Link href={`/admin/dispatch/${d._id}`} className="font-medium text-gold hover:underline">
-              {isFinal && d.finalBillId ? d.finalBillId : d.dispatchId}
+              {getDisplayBillId({
+                billStatus: isFinal ? "FINAL" : "DISPATCH",
+                finalBillId: d.finalBillId,
+                dispatchId: d.dispatchId,
+              })}
             </Link>
             <StatusBadge status={isFinal ? "COMPLETED" : "DISPATCHED"} />
           </div>
           <p className="text-xs text-gray-500 mt-1">
             {formatDateTime(d.dispatchDate)}
-            {d.orderCode && ` · Order: ${d.orderCode}`}
+            · Customer: {d.customerName}
+            {isFinal && d.finalBillId && d.dispatchId !== d.finalBillId && (
+              <> · Dispatch: {d.dispatchId}</>
+            )}
             {isFinal && " · Stock Deducted ✓"}
           </p>
         </div>
         <BillExportActions bill={dispatchToBill(d)} whatsappNumber={whatsappNumber} compact />
       </div>
       <SingleBillPaymentBox
+        bill={{
+          total: d.total,
+          advance: d.advance,
+          pending: d.pending,
+          cashPaid: d.cashPaid,
+          creditAdded: d.creditAdded,
+          creditApplied: d.creditApplied,
+        }}
         billAmount={d.total}
         clientPaid={d.advance}
         pending={d.pending}
@@ -397,15 +419,15 @@ export default function CustomerDetailPage() {
             </div>
             <div className="rounded-lg bg-green-50 p-3">
               <p className="text-gray-500 text-xs">Customer Paid</p>
-              <p className="text-lg font-bold text-green-700">{formatCurrency(stats.totalAdvance)}</p>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(paymentLedger.totalCashPaid)}</p>
             </div>
             <div className="rounded-lg bg-red-50 p-3">
               <p className="text-gray-500 text-xs">Pending</p>
-              <p className="text-lg font-bold text-red-600">{formatCurrency(stats.totalPending)}</p>
+              <p className="text-lg font-bold text-red-600">{formatCurrency(paymentLedger.totalPending)}</p>
             </div>
             <div className="rounded-lg bg-gold/10 p-3 border border-gold/20">
               <p className="text-gray-500 text-xs">Advance</p>
-              <p className="text-lg font-bold text-gold">{formatCurrency(stats.creditBalance)}</p>
+              <p className="text-lg font-bold text-gold">{formatCurrency(paymentLedger.creditBalance)}</p>
             </div>
           </CardContent>
         </Card>

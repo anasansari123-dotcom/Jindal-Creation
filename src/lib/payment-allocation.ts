@@ -4,7 +4,12 @@ import { Customer, Order, Dispatch, ConfirmBill, Payment } from "@/lib/models";
 import type { IPaymentAllocation } from "@/lib/models/Payment";
 import { generatePaymentId } from "@/lib/generators";
 import { getPaymentStatus } from "@/lib/utils";
-import { collectCustomerBills, type CustomerBillEntry, type BillSource } from "@/lib/customer-bills";
+import { getCustomerBillsForRecord } from "@/lib/customer-bills.server";
+import {
+  type CustomerBillEntry,
+  type BillSource,
+  getCustomerPaymentStats,
+} from "@/lib/customer-bills";
 import type { SessionUser } from "@/lib/auth/session";
 
 export interface AllocationResult {
@@ -18,62 +23,33 @@ export interface AllocationResult {
   bills: CustomerBillEntry[];
 }
 
-async function loadCustomerBills(customerId: string) {
-  const orders = await Order.find({ customerId }).sort({ orderDate: 1 }).lean();
-  const orderIds = orders.map((o) => o._id);
-  const [dispatches, confirmBills] = await Promise.all([
-    Dispatch.find({
-      $or: [{ customerId }, { orderId: { $in: orderIds } }],
-    })
-      .sort({ dispatchDate: 1 })
-      .lean(),
-    ConfirmBill.find({
-      $or: [{ customerId }, { orderId: { $in: orderIds } }],
-    })
-      .sort({ confirmDate: 1 })
-      .lean(),
-  ]);
+/** Align stored customer creditBalance with bill-derived advance (prevents double-count drift) */
+export async function syncCustomerCreditBalance(customerId: string, customerName: string) {
+  await connectDB();
+  const customer = await Customer.findById(customerId);
+  if (!customer) return 0;
 
-  return collectCustomerBills(
-    orders.map((o) => ({
-      _id: o._id,
-      orderId: o.orderId,
-      orderDate: o.orderDate,
-      total: o.total,
-      advance: o.advance,
-      pending: o.pending,
-      paidAmount: o.paidAmount,
-      paymentStatus: o.paymentStatus,
-    })),
-    dispatches.map((d) => ({
-      _id: d._id,
-      dispatchId: d.dispatchId,
-      finalBillId: d.finalBillId,
-      billStatus: d.billStatus,
-      orderId: d.orderId,
-      dispatchDate: d.dispatchDate,
-      total: d.total,
-      advance: d.advance,
-      pending: d.pending,
-      paymentStatus: d.paymentStatus,
-    })),
-    confirmBills.map((cb) => ({
-      _id: cb._id,
-      confirmBillId: cb.confirmBillId,
-      orderId: cb.orderId,
-      confirmDate: cb.confirmDate,
-      total: cb.total,
-      advance: cb.advance,
-      pending: cb.pending,
-      paymentStatus: cb.paymentStatus,
-    }))
+  const bills = await getCustomerBillsForRecord(customerId, customerName);
+  const stats = getCustomerPaymentStats(bills, customer.creditBalance || 0);
+
+  if ((customer.creditBalance || 0) !== stats.creditBalance) {
+    customer.creditBalance = stats.creditBalance;
+    await customer.save();
+  }
+
+  return stats.creditBalance;
+}
+
+async function syncConfirmBillPayment(billId: string, newPaid: number, total: number) {
+  const pending = Math.max(0, total - newPaid);
+  const paymentStatus = getPaymentStatus(total, newPaid);
+  await ConfirmBill.updateOne(
+    { confirmBillId: billId },
+    { advance: newPaid, pending, paymentStatus }
   );
 }
 
-async function persistBillPayment(
-  bill: CustomerBillEntry,
-  newPaid: number
-) {
+async function persistBillPayment(bill: CustomerBillEntry, newPaid: number) {
   const pending = Math.max(0, bill.total - newPaid);
   const paymentStatus = getPaymentStatus(bill.total, newPaid);
 
@@ -90,11 +66,58 @@ async function persistBillPayment(
       pending,
       paymentStatus,
     });
+    if (bill.billType === "Final") {
+      await syncConfirmBillPayment(bill.billId, newPaid, bill.total);
+    }
   } else if (bill.billSource === "ConfirmBill") {
     await ConfirmBill.findByIdAndUpdate(bill.refId, {
       advance: newPaid,
       pending,
       paymentStatus,
+    });
+    const dispatch = await Dispatch.findOne({ finalBillId: bill.billId }).lean();
+    if (dispatch) {
+      await Dispatch.findByIdAndUpdate(dispatch._id, {
+        advance: newPaid,
+        pending,
+        paymentStatus,
+      });
+    }
+  }
+}
+
+/** Settle old bill pending by moving liability to a new dispatch bill */
+export async function persistBillPaymentForTransfer(
+  bill: CustomerBillEntry,
+  transferAmount: number,
+  targetDispatchCode: string,
+  byName: string
+) {
+  const amount = Math.min(transferAmount, bill.pending);
+  if (amount <= 0) return;
+
+  const newPaid = bill.paid + amount;
+  await persistBillPayment(bill, newPaid);
+
+  const note = `Pending ₹${amount.toLocaleString("en-IN")} nayi bill ${targetDispatchCode} me transfer hui`;
+
+  if (bill.billSource === "Dispatch") {
+    await Dispatch.findByIdAndUpdate(bill.refId, {
+      $push: {
+        statusHistory: {
+          status: "COMPLETED",
+          billStatus: bill.billType === "Final" ? "FINAL" : "DISPATCH",
+          date: new Date(),
+          note,
+          byName,
+        },
+      },
+    });
+  } else if (bill.billSource === "Order") {
+    const order = await Order.findById(bill.refId).lean();
+    const prevNotes = order?.notes?.trim();
+    await Order.findByIdAndUpdate(bill.refId, {
+      notes: prevNotes ? `${prevNotes}\n${note}` : note,
     });
   }
 }
@@ -114,7 +137,7 @@ export async function applyCustomerPayment(params: {
   const customer = await Customer.findById(params.customerId);
   if (!customer) throw new Error("Customer not found");
 
-  const bills = await loadCustomerBills(params.customerId);
+  const bills = await getCustomerBillsForRecord(params.customerId, customer.name);
   let remaining = params.amount;
   const allocations: IPaymentAllocation[] = [];
 
@@ -149,7 +172,7 @@ export async function applyCustomerPayment(params: {
   }
 
   const paymentId = await generatePaymentId();
-  const primaryBill = allocations[0];
+  const billCodes = allocations.map((a) => a.billCode).join(", ");
 
   const paymentDoc: Record<string, unknown> = {
     paymentId,
@@ -165,14 +188,17 @@ export async function applyCustomerPayment(params: {
   };
   if (params.referenceNumber) paymentDoc.referenceNumber = params.referenceNumber;
   if (params.notes) paymentDoc.notes = params.notes;
-  if (primaryBill) {
-    paymentDoc.orderId = primaryBill.billRef;
-    paymentDoc.orderCode = primaryBill.billCode;
+  if (allocations.length > 0) {
+    paymentDoc.orderId = allocations[0].billRef;
+    paymentDoc.orderCode = billCodes;
   }
 
   await Payment.create(paymentDoc);
 
-  const updatedCustomer = await Customer.findById(params.customerId).lean();
+  const syncedBalance = await syncCustomerCreditBalance(
+    params.customerId,
+    customer.name
+  );
 
   return {
     payment: {
@@ -181,8 +207,8 @@ export async function applyCustomerPayment(params: {
       allocations,
       creditAdded,
     },
-    creditBalance: updatedCustomer?.creditBalance || 0,
-    bills: await loadCustomerBills(params.customerId),
+    creditBalance: syncedBalance,
+    bills: await getCustomerBillsForRecord(params.customerId, customer.name),
   };
 }
 
@@ -219,7 +245,12 @@ export async function applyCreditToNewBill(params: {
       advance: newPaid,
       pending,
       paymentStatus,
+      creditApplied: apply,
     });
+    const dispatch = await Dispatch.findById(params.billRef).lean();
+    if (dispatch?.finalBillId) {
+      await syncConfirmBillPayment(dispatch.finalBillId, newPaid, params.billTotal);
+    }
   } else if (params.billSource === "Order") {
     await Order.findByIdAndUpdate(params.billRef, {
       paidAmount: newPaid,
@@ -232,4 +263,127 @@ export async function applyCreditToNewBill(params: {
   return { applied: apply, creditBalance: customer.creditBalance };
 }
 
-export { loadCustomerBills };
+/** Update bill payment — reverses prior credit impact then recalculates */
+export async function reconcileDispatchBillPayments(params: {
+  customerId: string;
+  billRef: string;
+  billTotal: number;
+  cashPaid: number;
+  previousCreditAdded?: number;
+  previousCreditApplied?: number;
+}) {
+  await connectDB();
+  const customer = params.customerId ? await Customer.findById(params.customerId) : null;
+  if (!customer) {
+    const billPaid = Math.min(params.cashPaid, params.billTotal);
+    const creditAdded = Math.max(0, params.cashPaid - params.billTotal);
+    const pending = Math.max(0, params.billTotal - params.cashPaid);
+    await Dispatch.findByIdAndUpdate(params.billRef, {
+      $set: {
+        advance: billPaid,
+        pending,
+        paymentStatus: getPaymentStatus(params.billTotal, billPaid),
+        creditApplied: 0,
+        creditAdded,
+        cashPaid: params.cashPaid,
+      },
+    });
+    return { billPaid, pending, creditApplied: 0, creditAdded, creditBalance: 0 };
+  }
+
+  customer.creditBalance =
+    (customer.creditBalance || 0) -
+    (params.previousCreditAdded || 0) +
+    (params.previousCreditApplied || 0);
+
+  let creditApplied = 0;
+  const roomForCredit = Math.max(0, params.billTotal - params.cashPaid);
+  if (roomForCredit > 0 && (customer.creditBalance || 0) > 0) {
+    creditApplied = Math.min(customer.creditBalance, roomForCredit);
+    customer.creditBalance = Math.max(0, customer.creditBalance - creditApplied);
+  }
+
+  const totalPaid = params.cashPaid + creditApplied;
+  const billPaid = Math.min(totalPaid, params.billTotal);
+  const pending = Math.max(0, params.billTotal - totalPaid);
+  const creditAdded = Math.max(0, totalPaid - params.billTotal);
+
+  if (creditAdded > 0) {
+    customer.creditBalance = (customer.creditBalance || 0) + creditAdded;
+  }
+  await customer.save();
+
+  await Dispatch.findByIdAndUpdate(params.billRef, {
+    $set: {
+      advance: billPaid,
+      pending,
+      paymentStatus: getPaymentStatus(params.billTotal, billPaid),
+      creditApplied,
+      creditAdded,
+      cashPaid: params.cashPaid,
+    },
+  });
+
+  return {
+    billPaid,
+    pending,
+    creditApplied,
+    creditAdded,
+    creditBalance: customer.creditBalance,
+  };
+}
+
+/** Single entry point — persist cash paid, advance credit, and bill payment fields */
+export async function applyDispatchBillPayment(params: {
+  billRef: string;
+  billTotal: number;
+  cashPaid: number;
+  customerId?: string;
+  previousCreditAdded?: number;
+  previousCreditApplied?: number;
+  paymentMode?: string;
+}) {
+  const result = await reconcileDispatchBillPayments({
+    customerId: params.customerId || "",
+    billRef: params.billRef,
+    billTotal: params.billTotal,
+    cashPaid: params.cashPaid,
+    previousCreditAdded: params.previousCreditAdded,
+    previousCreditApplied: params.previousCreditApplied,
+  });
+
+  if (params.paymentMode && params.cashPaid > 0) {
+    await Dispatch.findByIdAndUpdate(params.billRef, {
+      $set: { paymentMode: params.paymentMode },
+    });
+  }
+
+  if (params.customerId) {
+    const customer = await Customer.findById(params.customerId).lean();
+    if (customer) {
+      const synced = await syncCustomerCreditBalance(params.customerId, customer.name);
+      return { ...result, creditBalance: synced };
+    }
+  }
+
+  return result;
+}
+
+/** Apply account credit to bill + move overpayment into customer advance balance */
+export async function finalizeNewDispatchBillPayments(params: {
+  customerId: string;
+  billRef: string;
+  billTotal: number;
+  cashPaid: number;
+  paymentMode?: string;
+}) {
+  return applyDispatchBillPayment({
+    billRef: params.billRef,
+    billTotal: params.billTotal,
+    cashPaid: params.cashPaid,
+    customerId: params.customerId,
+    paymentMode: params.paymentMode,
+  });
+}
+
+export { getCustomerBillsForRecord as loadCustomerBills };

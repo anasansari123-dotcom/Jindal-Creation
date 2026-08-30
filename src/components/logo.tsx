@@ -42,7 +42,11 @@ export function Logo({ size = "md", showText = true, href, theme = "dark" }: Log
   );
 
   if (href) {
-    return <Link href={href}>{content}</Link>;
+    return (
+      <Link href={href} aria-label={`${BRAND.name} home`}>
+        {content}
+      </Link>
+    );
   }
   return content;
 }

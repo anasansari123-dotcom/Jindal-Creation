@@ -68,7 +68,7 @@ function CreateFinalBillContent() {
   const [mode, setMode] = useState<"customer" | "id">("customer");
 
   useEffect(() => {
-    fetch("/api/customers?limit=500")
+    fetch("/api/customers?lite=true&limit=500")
       .then((r) => r.json())
       .then((d) => {
         setCustomers(d.customers || []);

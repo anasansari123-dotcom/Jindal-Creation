@@ -46,9 +46,6 @@ export async function adjustStock(
 
   if (type === "SALE") {
     newStock = previousStock - quantity;
-    if (newStock < 0) {
-      throw new Error(`Insufficient stock for ${product.name}. Available: ${previousStock}, Requested: ${quantity}`);
-    }
   } else if (type === "ADJUSTMENT") {
     newStock = quantity;
   } else {

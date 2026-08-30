@@ -29,10 +29,11 @@ export function Pagination({
           size="sm"
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
+          aria-label="Previous page"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
-        <span className="text-sm text-navy">
+        <span className="text-sm text-navy" aria-live="polite">
           Page {page} of {totalPages}
         </span>
         <Button
@@ -40,8 +41,9 @@ export function Pagination({
           size="sm"
           onClick={() => onPageChange(page + 1)}
           disabled={page >= totalPages}
+          aria-label="Next page"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
     </div>

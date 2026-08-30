@@ -4,7 +4,17 @@ import { Customer, Order, Dispatch, ConfirmBill, Payment } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { customerSchema } from "@/lib/validations";
 import { logActivity } from "@/lib/activity";
-import { buildCustomerBillLedger, collectCustomerBills, getCustomerPaymentStats } from "@/lib/customer-bills";
+import {
+  buildCustomerBillLedger,
+  getCustomerPaymentStats,
+  customerNamesMatch,
+  collectCustomerBills,
+  mapOrdersForCollect,
+  mapDispatchesForCollect,
+  mapConfirmBillsForCollect,
+  filterBillsForCustomerRecord,
+} from "@/lib/customer-bills";
+import { loadCustomerBillDocuments } from "@/lib/customer-bills.server";
 import { enrichDispatchesPaymentModes } from "@/lib/bill-payment-mode";
 
 export async function GET(
@@ -20,74 +30,43 @@ export async function GET(
     const customer = await Customer.findById(id).lean();
     if (!customer) return apiError("Customer not found", 404);
 
-    const orders = await Order.find({ customerId: id })
-      .sort({ orderDate: -1 })
-      .lean();
+    const { orders, dispatches, confirmBills } = await loadCustomerBillDocuments(id);
+    const allBills = collectCustomerBills(
+      mapOrdersForCollect(orders),
+      mapDispatchesForCollect(dispatches),
+      mapConfirmBillsForCollect(confirmBills)
+    );
+    const bills = filterBillsForCustomerRecord(allBills, customer.name);
 
-    const orderIds = orders.map((o) => o._id);
-    const [dispatches, confirmBills, payments] = await Promise.all([
-      Dispatch.find({
-        $or: [{ customerId: id }, { orderId: { $in: orderIds } }],
-      })
-        .sort({ dispatchDate: -1 })
-        .lean(),
-      ConfirmBill.find({
-        $or: [{ customerId: id }, { orderId: { $in: orderIds } }],
-      })
-        .sort({ confirmDate: -1 })
-        .lean(),
+    const [payments] = await Promise.all([
       Payment.find({ customerId: id }).sort({ date: -1 }).limit(30).lean(),
     ]);
-
-    const bills = collectCustomerBills(
-      orders.map((o) => ({
-        _id: o._id,
-        orderId: o.orderId,
-        orderDate: o.orderDate,
-        total: o.total,
-        advance: o.advance,
-        pending: o.pending,
-        paidAmount: o.paidAmount,
-        paymentStatus: o.paymentStatus,
-      })),
-      dispatches.map((d) => ({
-        _id: d._id,
-        dispatchId: d.dispatchId,
-        finalBillId: d.finalBillId,
-        billStatus: d.billStatus,
-        orderId: d.orderId,
-        dispatchDate: d.dispatchDate,
-        total: d.total,
-        advance: d.advance,
-        pending: d.pending,
-        paymentStatus: d.paymentStatus,
-      })),
-      confirmBills.map((cb) => ({
-        _id: cb._id,
-        confirmBillId: cb.confirmBillId,
-        orderId: cb.orderId,
-        confirmDate: cb.confirmDate,
-        total: cb.total,
-        advance: cb.advance,
-        pending: cb.pending,
-        paymentStatus: cb.paymentStatus,
-      }))
-    );
 
     const creditBalance = customer.creditBalance || 0;
     const paymentLedger = buildCustomerBillLedger(bills, creditBalance);
     const stats = getCustomerPaymentStats(bills, creditBalance);
 
-    const dispatchBills = dispatches.filter((d) => d.billStatus === "DISPATCH");
-    const finalBills = dispatches.filter((d) => d.billStatus === "FINAL");
+    const nameMatched = (d: { customerName?: string }) =>
+      customerNamesMatch(d.customerName, customer.name);
 
-    const enrichedDispatches = await enrichDispatchesPaymentModes(dispatches);
+    const dispatchBills = dispatches.filter(
+      (d) => d.billStatus === "DISPATCH" && nameMatched(d)
+    );
+    const finalBills = dispatches.filter(
+      (d) => d.billStatus === "FINAL" && nameMatched(d)
+    );
+
+    const enrichedDispatches = await enrichDispatchesPaymentModes(
+      dispatches.filter(nameMatched)
+    );
     const enrichedDispatchBills = enrichedDispatches.filter((d) => d.billStatus === "DISPATCH");
     const enrichedFinalBills = enrichedDispatches.filter((d) => d.billStatus === "FINAL");
 
     return apiSuccess({
-      customer,
-      orders,
+      customer: { ...customer, creditBalance },
+      orders: [...orders].sort(
+        (a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
+      ),
       dispatches: enrichedDispatchBills,
       finalBills: enrichedFinalBills,
       confirmBills,
@@ -101,7 +80,9 @@ export async function GET(
         totalFinalBills: finalBills.length,
         totalConfirmBills: confirmBills.length,
         ...stats,
-        totalClientPaid: stats.totalAdvance,
+        totalClientPaid: stats.totalCashPaid,
+        totalCashPaid: stats.totalCashPaid,
+        totalAppliedToBills: stats.totalAppliedToBills,
       },
     });
   } catch (error) {
@@ -131,6 +112,29 @@ export async function PUT(
       { new: true }
     );
     if (!customer) return apiError("Customer not found", 404);
+
+    await Dispatch.updateMany(
+      { customerId: id },
+      {
+        $set: {
+          customerName: customer.name,
+          customerCode: customer.customerId,
+          customerCompany: customer.companyName,
+          customerPhone: customer.phone,
+          customerAddress: customer.address,
+          customerCity: customer.city,
+        },
+      }
+    );
+    await ConfirmBill.updateMany(
+      { customerId: id },
+      {
+        $set: {
+          customerName: customer.name,
+          customerCode: customer.customerId,
+        },
+      }
+    );
 
     await logActivity(
       auth.user,

@@ -51,17 +51,27 @@ function LoginForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      className="space-y-4"
+      aria-busy={loading}
+      noValidate
+    >
       <div>
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
           type="email"
+          autoComplete="email"
           placeholder="admin@jindalcreation.com"
+          aria-invalid={!!errors.email}
+          aria-describedby={errors.email ? "email-error" : undefined}
           {...register("email")}
         />
         {errors.email && (
-          <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>
+          <p id="email-error" role="alert" className="mt-1 text-xs text-red-600">
+            {errors.email.message}
+          </p>
         )}
       </div>
       <div>
@@ -69,11 +79,16 @@ function LoginForm() {
         <Input
           id="password"
           type="password"
+          autoComplete="current-password"
           placeholder="Enter your password"
+          aria-invalid={!!errors.password}
+          aria-describedby={errors.password ? "password-error" : undefined}
           {...register("password")}
         />
         {errors.password && (
-          <p className="mt-1 text-xs text-red-500">{errors.password.message}</p>
+          <p id="password-error" role="alert" className="mt-1 text-xs text-red-600">
+            {errors.password.message}
+          </p>
         )}
       </div>
       <Button type="submit" variant="gold" className="w-full" disabled={loading}>

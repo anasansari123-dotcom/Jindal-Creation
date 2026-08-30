@@ -1,12 +1,8 @@
 import { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db/connect";
-import { Dispatch, Product, Customer, Order, ConfirmBill } from "@/lib/models";
+import { Dispatch, Product } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { getStockStatus } from "@/lib/utils";
-import {
-  aggregatePortfolioStats,
-  groupBillDocsByCustomer,
-} from "@/lib/crm-financials";
 import {
   startOfDay,
   endOfDay,
@@ -66,28 +62,28 @@ export async function GET(request: NextRequest) {
       endDate
     );
 
-    const [periodDispatches, recentDispatches, products, customers, orders, dispatches, confirmBills] =
-      await Promise.all([
-        Dispatch.find({ dispatchDate: { $gte: start, $lte: end } }).lean(),
-        Dispatch.find().sort({ dispatchDate: -1 }).limit(10).lean(),
-        Product.find({ status: "active" }).lean(),
-        Customer.find().lean(),
-        Order.find().lean(),
-        Dispatch.find().lean(),
-        ConfirmBill.find().lean(),
-      ]);
+    const dispatchStatsFields =
+      "total advance pending cashPaid creditAdded creditApplied items billStatus dispatchId finalBillId customerName paymentStatus dispatchDate salespersonName";
+    const dispatchListFields =
+      "dispatchId finalBillId billStatus customerName total advance pending cashPaid creditAdded creditApplied paymentStatus dispatchDate salespersonName";
+
+    const [periodDispatches, recentDispatches, products] = await Promise.all([
+      Dispatch.find({ dispatchDate: { $gte: start, $lte: end } })
+        .select(dispatchStatsFields)
+        .lean(),
+      Dispatch.find()
+        .sort({ dispatchDate: -1 })
+        .limit(10)
+        .select(dispatchListFields)
+        .lean(),
+      Product.find({ status: "active" })
+        .select("name productId currentStock minimumStock costPrice")
+        .lean(),
+    ]);
 
     const periodSummary = summarizeDispatchSales(enrichDispatchesList(periodDispatches));
     const enrichedRecent = enrichDispatchesList(recentDispatches);
     const enrichedPeriod = enrichDispatchesList(periodDispatches);
-    const { ordersByCustomer, dispatchesByCustomer, confirmByCustomer } =
-      groupBillDocsByCustomer(orders, dispatches, confirmBills);
-    const portfolio = aggregatePortfolioStats(
-      customers,
-      ordersByCustomer,
-      dispatchesByCustomer,
-      confirmByCustomer
-    );
 
     const lowStockProducts = products.filter(
       (p) =>
@@ -107,8 +103,8 @@ export async function GET(request: NextRequest) {
         todayOrders: periodSummary.totalOrders,
         todayPieces: periodSummary.totalPieces,
         todayBoxes: periodSummary.totalBoxes,
-        todayAdvance: portfolio.totalAdvance,
-        todayPending: portfolio.totalPending,
+        periodCashPaid: periodSummary.totalCashPaid,
+        periodBillPending: periodSummary.totalPending,
         inventoryValue,
         lowStockCount: lowStockProducts.length,
       },
@@ -119,7 +115,6 @@ export async function GET(request: NextRequest) {
       })),
       chartData: buildSalesChartData(enrichedPeriod),
       periodStats: periodSummary,
-      portfolio,
     });
   } catch (error) {
     return apiError(error);

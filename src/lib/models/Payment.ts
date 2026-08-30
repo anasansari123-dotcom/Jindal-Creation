@@ -66,6 +66,7 @@ const PaymentSchema = new Schema<IPayment>(
 PaymentSchema.index({ orderId: 1 });
 PaymentSchema.index({ customerId: 1 });
 PaymentSchema.index({ date: -1 });
+PaymentSchema.index({ "allocations.billRef": 1 });
 
 export const Payment: Model<IPayment> =
   mongoose.models.Payment ||

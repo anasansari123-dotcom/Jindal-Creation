@@ -13,6 +13,10 @@ export interface IInventoryTransaction extends Document {
   newStock: number;
   orderId?: string;
   notes?: string;
+  /** Sold more than available stock (no prior purchase) */
+  soldWithoutPurchase?: boolean;
+  /** Qty sold without stock at time of sale */
+  shortfallQty?: number;
   createdBy: Types.ObjectId;
   createdByName: string;
   createdAt: Date;
@@ -35,6 +39,8 @@ const InventoryTransactionSchema = new Schema<IInventoryTransaction>(
     newStock: { type: Number, required: true },
     orderId: { type: String },
     notes: { type: String },
+    soldWithoutPurchase: { type: Boolean, default: false },
+    shortfallQty: { type: Number, default: 0 },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     createdByName: { type: String, required: true },
   },
@@ -44,6 +50,7 @@ const InventoryTransactionSchema = new Schema<IInventoryTransaction>(
 InventoryTransactionSchema.index({ productId: 1 });
 InventoryTransactionSchema.index({ orderId: 1 });
 InventoryTransactionSchema.index({ createdAt: -1 });
+InventoryTransactionSchema.index({ soldWithoutPurchase: 1, createdAt: -1 });
 
 export const InventoryTransaction: Model<IInventoryTransaction> =
   mongoose.models.InventoryTransaction ||

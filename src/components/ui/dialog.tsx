@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 
@@ -11,15 +12,10 @@ interface DialogProps {
 }
 
 export function Dialog({ open, onOpenChange, children }: DialogProps) {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/50"
-        onClick={() => onOpenChange(false)}
-      />
-      <div className="relative z-50">{children}</div>
-    </div>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      {children}
+    </DialogPrimitive.Root>
   );
 }
 
@@ -31,14 +27,19 @@ export function DialogContent({
   children: React.ReactNode;
 }) {
   return (
-    <div
-      className={cn(
-        "w-full max-w-lg rounded-xl bg-white p-6 shadow-xl mx-4",
-        className
-      )}
-    >
-      {children}
-    </div>
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+      <DialogPrimitive.Content
+        className={cn(
+          "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl focus:outline-none",
+          "w-[calc(100%-1rem)] max-h-[min(100dvh,90vh)] overflow-y-auto",
+          "sm:w-full sm:max-w-lg",
+          className
+        )}
+      >
+        {children}
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
   );
 }
 
@@ -49,11 +50,7 @@ export function DialogHeader({
   children: React.ReactNode;
   className?: string;
 }) {
-  return (
-    <div className={cn("mb-4", className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn("mb-4", className)}>{children}</div>;
 }
 
 export function DialogTitle({
@@ -64,9 +61,11 @@ export function DialogTitle({
   className?: string;
 }) {
   return (
-    <h2 className={cn("text-lg font-semibold text-navy", className)}>
+    <DialogPrimitive.Title
+      className={cn("text-lg font-semibold text-navy", className)}
+    >
       {children}
-    </h2>
+    </DialogPrimitive.Title>
   );
 }
 
@@ -75,7 +74,11 @@ export function DialogDescription({
 }: {
   children: React.ReactNode;
 }) {
-  return <p className="mt-1 text-sm text-gray-500">{children}</p>;
+  return (
+    <DialogPrimitive.Description className="mt-1 text-sm text-gray-600">
+      {children}
+    </DialogPrimitive.Description>
+  );
 }
 
 export function DialogFooter({
@@ -128,6 +131,7 @@ export function ConfirmDialog({
             variant={variant === "destructive" ? "destructive" : "gold"}
             onClick={onConfirm}
             disabled={loading}
+            aria-busy={loading}
           >
             {loading ? "Processing..." : confirmLabel}
           </Button>

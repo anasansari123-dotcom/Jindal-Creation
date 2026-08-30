@@ -38,6 +38,16 @@ export interface IDispatch extends Document {
   readyByDate?: Date;
   subtotal: number;
   discount: number;
+  /** Current bill items total after discount (excludes carried-forward pending) */
+  currentBillAmount?: number;
+  /** Previous bills' pending rolled into this bill */
+  carriedForwardPending?: number;
+  /** Account credit/advance applied from customer balance */
+  creditApplied?: number;
+  /** Overpayment added to customer account advance */
+  creditAdded?: number;
+  /** Actual cash/UPI amount customer paid (may exceed bill total → creditAdded) */
+  cashPaid?: number;
   total: number;
   advance: number;
   pending: number;
@@ -99,6 +109,11 @@ const DispatchSchema = new Schema<IDispatch>(
     readyByDate: { type: Date },
     subtotal: { type: Number, required: true, default: 0 },
     discount: { type: Number, default: 0 },
+    currentBillAmount: { type: Number, default: 0 },
+    carriedForwardPending: { type: Number, default: 0 },
+    creditApplied: { type: Number, default: 0 },
+    creditAdded: { type: Number, default: 0 },
+    cashPaid: { type: Number, default: 0 },
     total: { type: Number, required: true },
     advance: { type: Number, default: 0 },
     pending: { type: Number, default: 0 },
@@ -131,6 +146,8 @@ DispatchSchema.index({ dispatchId: 1 });
 DispatchSchema.index({ billStatus: 1 });
 DispatchSchema.index({ dispatchDate: -1 });
 DispatchSchema.index({ customerId: 1 });
+DispatchSchema.index({ orderId: 1 });
+DispatchSchema.index({ billStatus: 1, inventoryDeducted: 1 });
 DispatchSchema.index({ orderType: 1, readyByDate: 1 });
 
 export const Dispatch: Model<IDispatch> =

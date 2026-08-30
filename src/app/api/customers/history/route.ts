@@ -89,7 +89,9 @@ export async function GET(request: NextRequest) {
       ),
       stats: {
         totalPurchase: stats.totalPurchase,
-        totalAdvance: stats.totalAdvance,
+        totalAdvance: stats.totalAppliedToBills,
+        totalCashPaid: stats.totalCashPaid,
+        totalAppliedToBills: stats.totalAppliedToBills,
         totalPending: stats.totalPending,
         totalOrders: bills.length,
         creditBalance: stats.creditBalance,

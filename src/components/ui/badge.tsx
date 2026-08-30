@@ -43,6 +43,7 @@ export function StatusBadge({ status }: { status: string }) {
     "In Stock": "success",
     "Low Stock": "warning",
     "Out of Stock": "danger",
+    "Negative Stock": "danger",
     active: "success",
     inactive: "secondary",
   };

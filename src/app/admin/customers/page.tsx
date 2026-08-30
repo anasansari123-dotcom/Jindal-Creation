@@ -27,7 +27,9 @@ interface Customer {
   companyName?: string;
   phone: string;
   city?: string;
-  totalAdvance: number;
+  totalAdvance?: number;
+  totalCashPaid?: number;
+  totalAppliedToBills?: number;
   totalPending: number;
   totalPurchase?: number;
   creditBalance?: number;
@@ -158,7 +160,12 @@ export default function CustomersPage() {
                         </td>
                         <td className="py-3">{c.phone}</td>
                         <td className="py-3 font-medium">{formatCurrency(c.totalPurchase || 0)}</td>
-                        <td className="py-3 text-green-700 font-medium">{formatCurrency(c.totalAdvance || 0)}</td>
+                        <td className="py-3 text-green-700 font-medium">
+                          {formatCurrency(
+                            c.totalCashPaid ??
+                              (c.totalPurchase || 0) - (c.totalPending || 0) + (c.creditBalance || 0)
+                          )}
+                        </td>
                         <td className="py-3 text-red-600 font-medium">{formatCurrency(c.totalPending || 0)}</td>
                         <td className="py-3 text-gold font-medium">{formatCurrency(c.creditBalance || 0)}</td>
                         <td className="py-3">

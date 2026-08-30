@@ -11,7 +11,8 @@ import {
 } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { getStockStatus } from "@/lib/utils";
-import { enrichDispatchesList } from "@/lib/bill-pricing";
+import { enrichDispatchesList, looseShortfallQty } from "@/lib/bill-pricing";
+import { summarizeDispatchSales } from "@/lib/dispatch-sales-stats";
 import { startOfDay, endOfDay } from "date-fns";
 import { getCustomerPaymentStats } from "@/lib/customer-bills";
 import {
@@ -170,12 +171,16 @@ export async function GET(request: NextRequest) {
         ).lean();
 
         if (hasDateFilter) {
-          const dispatches = await Dispatch.find(dispatchQuery).lean();
+          const dispatches = enrichDispatchesList(
+            await Dispatch.find(dispatchQuery).lean()
+          );
+          const periodStats = summarizeDispatchSales(dispatches);
           return apiSuccess({
             report: {
-              totalAdvance: dispatches.reduce((s, d) => s + d.advance, 0),
-              totalPaid: payments.reduce((s, p) => s + p.amount, 0),
-              totalPending: dispatches.reduce((s, d) => s + d.pending, 0),
+              scope: "period",
+              totalCashPaid: periodStats.totalCashPaid,
+              totalAdvance: periodStats.totalAdvanceSaved,
+              totalPending: periodStats.totalPending,
               payments,
             },
           });
@@ -198,10 +203,84 @@ export async function GET(request: NextRequest) {
 
         return apiSuccess({
           report: {
+            scope: "portfolio",
+            totalCashPaid: portfolio.totalPaid,
             totalAdvance: portfolio.totalAdvance,
-            totalPaid: payments.reduce((s, p) => s + p.amount, 0),
             totalPending: portfolio.totalPending,
             payments,
+          },
+        });
+      }
+
+      case "oversales": {
+        const txQuery: Record<string, unknown> = { soldWithoutPurchase: true };
+        if (hasDateFilter) txQuery.createdAt = dateFilter;
+
+        const transactions = await InventoryTransaction.find(txQuery)
+          .sort({ createdAt: -1 })
+          .limit(500)
+          .lean();
+
+        const dispatchIds = [
+          ...new Set(transactions.map((t) => t.orderId).filter(Boolean)),
+        ] as string[];
+        const dispatches = dispatchIds.length
+          ? await Dispatch.find({ dispatchId: { $in: dispatchIds } }).lean()
+          : [];
+        const dispatchMap = new Map(dispatches.map((d) => [d.dispatchId, d]));
+
+        const productIds = [
+          ...new Set(transactions.map((t) => t.productId.toString())),
+        ];
+        const productsList = productIds.length
+          ? await Product.find({ _id: { $in: productIds } }).lean()
+          : [];
+        const productMap = new Map(productsList.map((p) => [p._id.toString(), p]));
+
+        const items = transactions
+          .map((tx) => {
+            const dispatch = tx.orderId ? dispatchMap.get(tx.orderId) : undefined;
+            const product = productMap.get(tx.productId.toString());
+            const dispatchItem = dispatch?.items.find(
+              (i) =>
+                i.productId?.toString() === tx.productId.toString() ||
+                i.productCode === tx.productCode
+            );
+            const shortfallStored = tx.shortfallQty || 0;
+            const shortfallQty = dispatchItem
+              ? looseShortfallQty(shortfallStored, {
+                  pieces: dispatchItem.pieces,
+                  boxes: dispatchItem.boxes,
+                  fullBoxes: dispatchItem.fullBoxes,
+                  loosePieces: dispatchItem.loosePieces,
+                  piecesPerBox: product?.piecesPerBox,
+                  unitPrice: dispatchItem.unitPrice,
+                  sellMode: dispatchItem.sellMode,
+                  quantity: dispatchItem.quantity,
+                })
+              : shortfallStored;
+            return {
+              date: tx.createdAt,
+              productName: tx.productName,
+              productCode: tx.productCode,
+              qtySold: tx.quantity,
+              shortfallQty,
+              stockBefore: tx.previousStock,
+              stockAfter: tx.newStock,
+              billId: tx.orderId,
+              customerName: dispatch?.customerName || "—",
+              sellingUnit: product?.sellingUnit || "piece",
+              createdByName: tx.createdByName,
+              notes: tx.notes,
+            };
+          })
+          .filter((item) => item.shortfallQty > 0);
+
+        return apiSuccess({
+          report: {
+            totalEntries: items.length,
+            totalShortfall: items.reduce((s, i) => s + i.shortfallQty, 0),
+            items,
           },
         });
       }

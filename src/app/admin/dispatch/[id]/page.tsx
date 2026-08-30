@@ -15,6 +15,10 @@ import { dispatchToBillData } from "@/lib/bill-export";
 import { DEFAULT_WHATSAPP_NUMBER } from "@/lib/constants";
 import { SingleBillPaymentBox } from "@/components/payment-ledger";
 import { formatDate, formatCurrency, formatDateTime } from "@/lib/utils";
+import {
+  formatBillAmountBreakdown,
+  getBillPaymentDisplay,
+} from "@/lib/bill-payment-display";
 import { BillItemsTable } from "@/components/bill-items-table";
 import { enrichBillLineItem, formatBillLineCalculation } from "@/lib/bill-pricing";
 import { buildStatusHistory } from "@/lib/dispatch-orders";
@@ -43,6 +47,11 @@ interface DispatchBill {
   items: BillData["items"];
   subtotal: number;
   discount: number;
+  currentBillAmount?: number;
+  carriedForwardPending?: number;
+  creditApplied?: number;
+  creditAdded?: number;
+  cashPaid?: number;
   total: number;
   advance: number;
   pending: number;
@@ -112,6 +121,7 @@ export default function DispatchBillDetailPage() {
   }
 
   const billData = dispatchToBillData(dispatch);
+  const payment = getBillPaymentDisplay(dispatch);
   const orderHistory = buildStatusHistory(dispatch);
   const advanceDue = getAdvanceDueStatus(dispatch.readyByDate, dispatch.billStatus);
 
@@ -159,11 +169,12 @@ export default function DispatchBillDetailPage() {
       </div>
 
       <SingleBillPaymentBox
+        bill={dispatch}
         billAmount={dispatch.total}
         clientPaid={dispatch.advance}
         pending={dispatch.pending}
         paymentStatus={dispatch.paymentStatus}
-        label={`Bill: ${formatCurrency(dispatch.subtotal)} − Discount ${formatCurrency(dispatch.discount)} = ${formatCurrency(dispatch.total)}`}
+        label={formatBillAmountBreakdown(dispatch)}
       />
 
       <Card>
@@ -187,8 +198,20 @@ export default function DispatchBillDetailPage() {
               </p>
             </div>
           )}
-          <div><p className="text-gray-500">Advance Paid</p><p className="font-medium text-green-700">{formatCurrency(dispatch.advance)}</p></div>
-          <div><p className="text-gray-500">Pending</p><p className="font-medium text-red-600">{formatCurrency(dispatch.pending)}</p></div>
+          <div><p className="text-gray-500">Customer Paid</p><p className="font-medium text-green-700">{formatCurrency(payment.cashPaid)}</p></div>
+          {payment.hasPending ? (
+            <div><p className="text-gray-500">Pending</p><p className="font-medium text-red-600">{formatCurrency(payment.pending)}</p></div>
+          ) : payment.hasAdvance ? (
+            <div><p className="text-gray-500">Advance (Account)</p><p className="font-medium text-gold">{formatCurrency(payment.creditAdded)}</p></div>
+          ) : (
+            <div><p className="text-gray-500">Pending</p><p className="font-medium text-green-700">{formatCurrency(0)}</p></div>
+          )}
+          {(dispatch.carriedForwardPending || 0) > 0 && (
+            <div><p className="text-gray-500">Purani Pending (is bill me)</p><p className="font-medium text-amber-700">{formatCurrency(dispatch.carriedForwardPending!)}</p></div>
+          )}
+          {(dispatch.creditApplied || 0) > 0 && (
+            <div><p className="text-gray-500">Account Advance Use</p><p className="font-medium text-green-700">{formatCurrency(dispatch.creditApplied!)}</p></div>
+          )}
           <div><p className="text-gray-500">Bill Banaya</p><p className="font-medium">{dispatch.salespersonName}</p></div>
           {dispatch.convertedAt && <div><p className="text-gray-500">Final Bill Date</p><p>{formatDate(dispatch.convertedAt)}</p></div>}
         </CardContent>

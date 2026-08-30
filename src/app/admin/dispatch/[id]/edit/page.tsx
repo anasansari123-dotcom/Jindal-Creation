@@ -13,7 +13,6 @@ import { PageLoader } from "@/components/ui/loading";
 import { toast } from "@/components/ui/toast";
 import { formatCurrency } from "@/lib/utils";
 import {
-  calculateBillLineTotal,
   enrichBillLineItem,
   formatBillLineCalculation,
   piecePriceFromBox,
@@ -22,7 +21,26 @@ import { BillItemsTable } from "@/components/bill-items-table";
 import { PAYMENT_METHODS } from "@/lib/constants";
 import { formatProductDisplay } from "@/lib/product-display";
 import { formatProductStock, isKgProduct } from "@/lib/product-units";
-import { ArrowLeft, Plus, Trash2, Save } from "lucide-react";
+import {
+  computeDispatchBillTotals,
+  previewCreditApplication,
+} from "@/lib/dispatch-bill-totals";
+import { getBillPaymentDisplay } from "@/lib/bill-payment-display";
+import { AddBillProductsDialog } from "@/components/add-bill-products-dialog";
+import { BillFormItemsEditor } from "@/components/bill-form-items-editor";
+import {
+  type BillItemRow,
+  billItemRowHasQty,
+  billItemRowToApiPayload,
+  billItemRowTotal,
+  buildBillPreviewLines,
+  emptyBillItemRow,
+  mergeBillItemRows,
+  newBillItemRowId,
+  patchBillItemField,
+  totalQtyForBillItem,
+} from "@/lib/dispatch-bill-form";
+import { ArrowLeft, Plus, Trash2, Save, PackagePlus, ListPlus } from "lucide-react";
 
 interface Customer {
   _id: string;
@@ -45,16 +63,6 @@ interface Product {
   unit?: string;
 }
 
-interface ItemRow {
-  productId: string;
-  boxQty: number;
-  pieceQty: number;
-  kgQty: number;
-  boxDiscount: number;
-  pieceDiscount: number;
-  kgDiscount: number;
-}
-
 interface StoredDispatchItem {
   productId?: string;
   pieces: number;
@@ -66,110 +74,57 @@ interface StoredDispatchItem {
   boxes?: number;
   piecesPerBox?: number;
   unitPrice: number;
+  piecePrice?: number;
 }
 
-function buildPreviewLines(item: ItemRow, p: Product) {
-  const lines: ReturnType<typeof calculateBillLineTotal>[] = [];
-  if (isKgProduct(p)) {
-    if (item.kgQty > 0) {
-      lines.push(
-        calculateBillLineTotal({
-          sellMode: "kg",
-          kgQty: item.kgQty,
-          boxPrice: p.sellingPrice,
-          piecesPerBox: 1,
-          discount: item.kgDiscount,
-        })
-      );
-    }
-    return lines;
-  }
-  if (item.boxQty > 0) {
-    lines.push(
-      calculateBillLineTotal({
-        sellMode: "box",
-        boxQty: item.boxQty,
-        boxPrice: p.sellingPrice,
-        piecesPerBox: p.piecesPerBox,
-        discount: item.boxDiscount,
-      })
-    );
-  }
-  if (item.pieceQty > 0) {
-    lines.push(
-      calculateBillLineTotal({
-        sellMode: "piece",
-        pieceQty: item.pieceQty,
-        boxPrice: p.sellingPrice,
-        piecesPerBox: p.piecesPerBox,
-        discount: item.pieceDiscount,
-      })
-    );
-  }
-  return lines;
-}
-
-function totalQtyForItem(item: ItemRow, p: Product) {
-  if (isKgProduct(p)) return item.kgQty;
-  const ppb = Math.max(p.piecesPerBox, 1);
-  return item.boxQty * ppb + item.pieceQty;
-}
-
-function itemHasQty(item: ItemRow, p?: Product) {
-  if (p && isKgProduct(p)) return item.kgQty > 0;
-  return item.boxQty > 0 || item.pieceQty > 0;
-}
-
-function dispatchItemsToFormRows(items: StoredDispatchItem[]): ItemRow[] {
-  const map = new Map<string, ItemRow>();
+function dispatchItemsToFormRows(items: StoredDispatchItem[]): BillItemRow[] {
+  const map = new Map<string, BillItemRow>();
 
   for (const item of items) {
     const pid = item.productId ? String(item.productId) : "";
     if (!pid) continue;
 
     const pricing = enrichBillLineItem(item);
+    const ppb = Math.max(item.piecesPerBox || 1, 1);
     const existing = map.get(pid) ?? {
+      ...emptyBillItemRow(),
+      id: newBillItemRowId(),
       productId: pid,
-      boxQty: 0,
-      pieceQty: 0,
-      kgQty: 0,
-      boxDiscount: 0,
-      pieceDiscount: 0,
-      kgDiscount: 0,
+      boxPrice: item.unitPrice,
+      piecePrice: item.piecePrice ?? piecePriceFromBox(item.unitPrice, ppb),
+      kgPrice: item.unitPrice,
     };
 
     if (item.sellMode === "kg") {
       existing.kgQty += item.quantity ?? pricing.kgQty ?? item.pieces;
-      existing.kgDiscount += item.discount || 0;
+      existing.kgPrice = item.unitPrice;
     } else if (
       item.sellMode === "piece" ||
       (pricing.loosePieces > 0 && pricing.fullBoxes === 0)
     ) {
       existing.pieceQty += pricing.loosePieces;
-      existing.pieceDiscount += item.discount || 0;
+      existing.piecePrice = item.piecePrice ?? piecePriceFromBox(item.unitPrice, ppb);
     } else {
       existing.boxQty += pricing.fullBoxes;
-      existing.boxDiscount += item.discount || 0;
+      existing.boxPrice = item.unitPrice;
     }
 
     map.set(pid, existing);
   }
 
   const rows = Array.from(map.values());
-  return rows.length > 0
-    ? rows
-    : [{ productId: "", boxQty: 0, pieceQty: 0, kgQty: 0, boxDiscount: 0, pieceDiscount: 0, kgDiscount: 0 }];
+  return rows.length > 0 ? rows : [emptyBillItemRow()];
 }
 
 function stockAvailableForEdit(
   p: Product,
-  item: ItemRow,
+  item: BillItemRow,
   originalItems: StoredDispatchItem[]
 ) {
   const returned = originalItems
     .filter((i) => String(i.productId) === p._id)
     .reduce((s, i) => s + (i.pieces || 0), 0);
-  const needed = totalQtyForItem(item, p);
+  const needed = totalQtyForBillItem(item, p);
   return needed <= p.currentStock + returned;
 }
 
@@ -199,14 +154,16 @@ export default function EditDispatchBillPage() {
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [salespersonName, setSalespersonName] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<ItemRow[]>([
-    { productId: "", boxQty: 0, pieceQty: 0, kgQty: 0, boxDiscount: 0, pieceDiscount: 0, kgDiscount: 0 },
-  ]);
+  const [items, setItems] = useState<BillItemRow[]>([emptyBillItemRow()]);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [bulkAddQuickCreate, setBulkAddQuickCreate] = useState(false);
+  const [carriedForwardPending, setCarriedForwardPending] = useState(0);
+  const [accountCredit, setAccountCredit] = useState(0);
 
   useEffect(() => {
     Promise.all([
       fetch(`/api/dispatch/${id}`).then((r) => r.json()),
-      fetch("/api/customers?limit=500").then((r) => r.json()),
+      fetch("/api/customers?lite=true&limit=500").then((r) => r.json()),
       fetch("/api/products?limit=500").then((r) => r.json()),
     ]).then(([d, c, p]) => {
       const dispatch = d.dispatch;
@@ -240,7 +197,18 @@ export default function EditDispatchBillPage() {
           : ""
       );
       setDiscount(dispatch.discount || 0);
-      setAdvance(dispatch.advance || 0);
+      setAdvance(
+        dispatch.cashPaid && dispatch.cashPaid > 0
+          ? dispatch.cashPaid
+          : getBillPaymentDisplay({
+              total: dispatch.total,
+              advance: dispatch.advance,
+              pending: dispatch.pending,
+              creditAdded: dispatch.creditAdded,
+              creditApplied: dispatch.creditApplied,
+            }).cashPaid
+      );
+      setCarriedForwardPending(dispatch.carriedForwardPending || 0);
       setPaymentMode(dispatch.paymentMode || "Cash");
       setSalespersonName(dispatch.salespersonName || "");
       setNotes(dispatch.notes || "");
@@ -249,36 +217,65 @@ export default function EditDispatchBillPage() {
 
       setCustomers(c.customers || []);
       setProducts(p.products || []);
+      if (dispatch.customerId) {
+        fetch(`/api/customers/${dispatch.customerId}/account-balance`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.availableCredit != null) setAccountCredit(data.availableCredit);
+          })
+          .catch(() => {});
+      }
       setLoading(false);
     });
   }, [id, router]);
 
-  const updateItem = (index: number, field: keyof ItemRow, value: string | number) => {
+  const updateItem = (index: number, field: keyof BillItemRow, value: string | number) => {
     setItems((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
+      const product =
+        field === "productId"
+          ? products.find((x) => x._id === value)
+          : products.find((x) => x._id === next[index].productId);
+      next[index] = patchBillItemField(next[index], field, value, product);
       return next;
     });
   };
 
-  const getItemTotal = (item: ItemRow) => {
+  const openQuickAdd = (withNewProduct = false) => {
+    setBulkAddQuickCreate(withNewProduct);
+    setBulkAddOpen(true);
+  };
+
+  const getItemTotal = (item: BillItemRow) => {
     const p = products.find((x) => x._id === item.productId);
     if (!p) return 0;
-    return buildPreviewLines(item, p).reduce((s, line) => s + line.total, 0);
+    return billItemRowTotal(item, p);
   };
 
   const subtotal = items.reduce((s, i) => s + (i.productId ? getItemTotal(i) : 0), 0);
-  const total = subtotal - discount;
-  const pending = Math.max(0, total - advance);
+  const billDiscount = advance > 0 ? discount : 0;
+  const { creditApplied: previewCredit } = previewCreditApplication(
+    Math.max(0, subtotal - billDiscount) + carriedForwardPending,
+    advance,
+    customerId ? accountCredit : 0
+  );
+  const billTotals = computeDispatchBillTotals({
+    subtotal,
+    discount: billDiscount,
+    carriedForwardPending,
+    cashPaid: advance,
+    creditApplied: customerId ? previewCredit : 0,
+  });
+  const { total, pending, creditAdded, currentBillAmount } = billTotals;
 
   const previewItems = items
     .filter((i) => {
       const p = products.find((x) => x._id === i.productId);
-      return i.productId && p && itemHasQty(i, p);
+      return i.productId && p && billItemRowHasQty(i, p);
     })
     .flatMap((item) => {
       const p = products.find((x) => x._id === item.productId)!;
-      return buildPreviewLines(item, p).map((line) => ({
+      return buildBillPreviewLines(item, p).map((line) => ({
         productName: p.name,
         productCode: p.productId,
         pieces: line.pieces,
@@ -309,7 +306,7 @@ export default function EditDispatchBillPage() {
     }
     const validItems = items.filter((i) => {
       const p = products.find((x) => x._id === i.productId);
-      return i.productId && p && itemHasQty(i, p);
+      return i.productId && p && billItemRowHasQty(i, p);
     });
     if (validItems.length === 0) {
       toast("Add at least one product with box, piece, or kg qty", "error");
@@ -328,22 +325,12 @@ export default function EditDispatchBillPage() {
     for (const item of validItems) {
       const p = products.find((x) => x._id === item.productId);
       if (!p) continue;
-      const needed = totalQtyForItem(item, p);
+      const needed = totalQtyForBillItem(item, p);
       if (needed <= 0) {
         toast(
           isKgProduct(p)
             ? `Enter kg qty for ${p.name}`
             : `Enter box or piece qty for ${p.name}`,
-          "error"
-        );
-        return;
-      }
-      if (!isAdvance && !stockAvailableForEdit(p, item, originalItems)) {
-        const returned = originalItems
-          .filter((i) => String(i.productId) === p._id)
-          .reduce((s, i) => s + (i.pieces || 0), 0);
-        toast(
-          `Insufficient stock for ${p.name}. Available: ${formatProductStock({ ...p, currentStock: p.currentStock + returned })}`,
           "error"
         );
         return;
@@ -366,23 +353,10 @@ export default function EditDispatchBillPage() {
           orderType,
           readyByDate: isAdvance ? readyByDate : undefined,
           items: validItems.map((i) => {
-            const p = products.find((x) => x._id === i.productId);
-            if (p && isKgProduct(p)) {
-              return {
-                productId: i.productId,
-                kgQty: i.kgQty,
-                kgDiscount: i.kgDiscount,
-              };
-            }
-            return {
-              productId: i.productId,
-              boxQty: i.boxQty,
-              pieceQty: i.pieceQty,
-              boxDiscount: i.boxDiscount,
-              pieceDiscount: i.pieceDiscount,
-            };
+            const p = products.find((x) => x._id === i.productId)!;
+            return billItemRowToApiPayload(i, p);
           }),
-          discount,
+          discount: advance > 0 ? discount : 0,
           advance,
           paymentMode: advance > 0 ? paymentMode : undefined,
           salespersonName: salespersonName.trim(),
@@ -490,198 +464,48 @@ export default function EditDispatchBillPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
             <CardTitle>Products</CardTitle>
+            <div className="flex gap-2 flex-wrap">
+            <Button
+              type="button"
+              variant="gold"
+              size="sm"
+              onClick={() => setBulkAddOpen(true)}
+            >
+              <ListPlus className="h-4 w-4" /> Quick Add Products
+            </Button>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() =>
-                setItems((p) => [
-                  ...p,
-                  { productId: "", boxQty: 0, pieceQty: 0, kgQty: 0, boxDiscount: 0, pieceDiscount: 0, kgDiscount: 0 },
-                ])
-              }
+              onClick={() => openQuickAdd(true)}
+            >
+              <PackagePlus className="h-4 w-4" /> Naya Product
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="hidden md:inline-flex"
+              onClick={() => setItems((p) => [...p, emptyBillItemRow()])}
             >
               <Plus className="h-4 w-4" /> Add Product
             </Button>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {items.map((item, index) => {
-              const p = products.find((x) => x._id === item.productId);
-              const isKg = p ? isKgProduct(p) : false;
-              const pieceRate = p && !isKg ? piecePriceFromBox(p.sellingPrice, p.piecesPerBox) : 0;
-              const lines = p ? buildPreviewLines(item, p) : [];
-              const needed = p ? totalQtyForItem(item, p) : 0;
-              const stockOk =
-                isAdvance || !p || needed === 0 || stockAvailableForEdit(p, item, originalItems);
-              const returnedStock = p
-                ? originalItems
-                    .filter((i) => String(i.productId) === p._id)
-                    .reduce((s, i) => s + (i.pieces || 0), 0)
-                : 0;
-
-              return (
-                <div key={index} className="border rounded-lg p-4 space-y-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="flex-1 min-w-[200px]">
-                      <Label>Product</Label>
-                      <Select
-                        value={item.productId}
-                        onChange={(e) => updateItem(index, "productId", e.target.value)}
-                      >
-                        <option value="">Select product</option>
-                        {products.map((pr) => (
-                          <option key={pr._id} value={pr._id}>{formatProductDisplay(pr.name, pr.productId)}</option>
-                        ))}
-                      </Select>
-                    </div>
-                    {items.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="mt-6"
-                        onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    )}
-                  </div>
-
-                  {p && (
-                    <>
-                      <div className="grid grid-cols-2 gap-3 text-xs text-gray-600 bg-gray-50 rounded p-3">
-                        <div>
-                          <span className="text-gray-400 block">Available Stock</span>
-                          <strong className="text-navy">
-                            {formatProductStock({ ...p, currentStock: p.currentStock + returnedStock })}
-                          </strong>
-                        </div>
-                        <div>
-                          <span className="text-gray-400 block">Rates</span>
-                          <strong className="text-navy">
-                            {isKg
-                              ? `${formatCurrency(p.sellingPrice)}/Kg`
-                              : `${formatCurrency(p.sellingPrice)}/Box · ${formatCurrency(pieceRate)}/Pc`}
-                          </strong>
-                        </div>
-                      </div>
-
-                      {isKg ? (
-                        <div className="rounded-lg border border-emerald-200 p-4 space-y-3">
-                          <p className="text-sm font-semibold text-navy">Kg (Weight)</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>Qty (Kg)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                step="0.001"
-                                value={item.kgQty || ""}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateItem(index, "kgQty", Math.max(0, Number(e.target.value) || 0))
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Rate / Kg</Label>
-                              <Input readOnly value={formatCurrency(p.sellingPrice)} className="bg-gray-50" />
-                            </div>
-                            <div className="col-span-2">
-                              <Label>Discount (₹)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.kgDiscount}
-                                onChange={(e) => updateItem(index, "kgDiscount", Number(e.target.value))}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="rounded-lg border border-navy/10 p-4 space-y-3">
-                          <p className="text-sm font-semibold text-navy">Box</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>Qty (Box)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.boxQty || ""}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateItem(index, "boxQty", Math.max(0, Number(e.target.value) || 0))
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Rate / Box</Label>
-                              <Input readOnly value={formatCurrency(p.sellingPrice)} className="bg-gray-50" />
-                            </div>
-                            <div className="col-span-2">
-                              <Label>Discount (₹)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.boxDiscount}
-                                onChange={(e) => updateItem(index, "boxDiscount", Number(e.target.value))}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-gold/30 p-4 space-y-3">
-                          <p className="text-sm font-semibold text-navy">Piece</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>Qty (Pc)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.pieceQty || ""}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateItem(index, "pieceQty", Math.max(0, Number(e.target.value) || 0))
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Rate / Pc</Label>
-                              <Input readOnly value={formatCurrency(pieceRate)} className="bg-gray-50" />
-                            </div>
-                            <div className="col-span-2">
-                              <Label>Discount (₹)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.pieceDiscount}
-                                onChange={(e) => updateItem(index, "pieceDiscount", Number(e.target.value))}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      )}
-
-                      {lines.length > 0 && (
-                        <div
-                          className={`rounded-lg p-3 text-sm ${stockOk ? "bg-green-50 border border-green-100" : "bg-red-50 border border-red-200"}`}
-                        >
-                          <p className="font-medium text-navy">
-                            {lines.map((l) => formatBillLineCalculation(l)).join(" · ")} = {formatCurrency(getItemTotal(item))}
-                          </p>
-                          {!stockOk && !isAdvance && (
-                            <p className="text-red-600 text-xs mt-1">Stock kam hai</p>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+          <CardContent className="space-y-4">
+            <div className="hidden md:block">
+              <BillFormItemsEditor
+                items={items}
+                products={products}
+                onItemsChange={setItems}
+                onOpenQuickAdd={() => openQuickAdd(true)}
+              />
+            </div>
+            <p className="md:hidden text-sm text-gray-600">
+              Mobile par products <strong>Quick Add Products</strong> se jodhein — neeche Bill Preview mein sab dikhega.
+            </p>
           </CardContent>
         </Card>
 
@@ -697,13 +521,30 @@ export default function EditDispatchBillPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <Label>Bill Discount (₹)</Label>
-                <Input type="number" min={0} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
-              </div>
-              <div>
                 <Label>Customer Paid (₹)</Label>
-                <Input type="number" min={0} value={advance} onChange={(e) => setAdvance(Number(e.target.value))} />
+                <Input
+                  type="number"
+                  min={0}
+                  value={advance > 0 ? advance : ""}
+                  placeholder="0"
+                  onChange={(e) => {
+                    const v = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0);
+                    setAdvance(v);
+                    if (v <= 0) setDiscount(0);
+                  }}
+                />
               </div>
+              {advance > 0 && (
+                <div>
+                  <Label>Bill Discount (₹)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={discount}
+                    onChange={(e) => setDiscount(Number(e.target.value))}
+                  />
+                </div>
+              )}
               <div>
                 <Label>Payment Mode</Label>
                 <Select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} disabled={advance <= 0}>
@@ -715,11 +556,43 @@ export default function EditDispatchBillPage() {
             </div>
             <div className="rounded-lg bg-gray-50 p-4 space-y-2 text-sm">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+              {billDiscount > 0 && (
+                <div className="flex justify-between text-red-600">
+                  <span>Discount</span><span>-{formatCurrency(billDiscount)}</span>
+                </div>
+              )}
+              {carriedForwardPending > 0 && (
+                <>
+                  <div className="flex justify-between"><span>Is Bill Ka Amount</span><span>{formatCurrency(currentBillAmount)}</span></div>
+                  <div className="flex justify-between text-amber-700 font-medium">
+                    <span>+ Purani Pending (Account)</span>
+                    <span>{formatCurrency(carriedForwardPending)}</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between font-bold border-t pt-2">
                 <span>Grand Total</span><span>{formatCurrency(total)}</span>
               </div>
-              <div className="flex justify-between text-green-700"><span>Customer Paid</span><span>{formatCurrency(advance)}</span></div>
-              <div className="flex justify-between text-red-600 font-bold"><span>Pending</span><span>{formatCurrency(pending)}</span></div>
+              {advance > 0 && (
+                <div className="flex justify-between text-green-700"><span>Customer Paid</span><span>{formatCurrency(advance)}</span></div>
+              )}
+              {previewCredit > 0 && (
+                <div className="flex justify-between text-green-700">
+                  <span>Account Advance (bill par use)</span>
+                  <span>{formatCurrency(previewCredit)}</span>
+                </div>
+              )}
+              {creditAdded > 0 && (
+                <div className="flex justify-between text-gold font-semibold">
+                  <span>Advance (Account me save)</span>
+                  <span>{formatCurrency(creditAdded)}</span>
+                </div>
+              )}
+              {pending > 0 ? (
+                <div className="flex justify-between text-red-600 font-bold"><span>Pending</span><span>{formatCurrency(pending)}</span></div>
+              ) : creditAdded <= 0 ? (
+                <div className="flex justify-between text-green-700 font-bold"><span>Pending</span><span>{formatCurrency(0)}</span></div>
+              ) : null}
             </div>
             <div>
               <Label>Notes</Label>
@@ -737,6 +610,20 @@ export default function EditDispatchBillPage() {
           </Link>
         </div>
       </form>
+
+      <AddBillProductsDialog
+        open={bulkAddOpen}
+        onOpenChange={(open) => {
+          setBulkAddOpen(open);
+          if (!open) setBulkAddQuickCreate(false);
+        }}
+        products={products}
+        onProductsChange={setProducts}
+        startWithQuickCreate={bulkAddQuickCreate}
+        onAdd={(rows) =>
+          setItems((prev) => mergeBillItemRows(prev, rows, products))
+        }
+      />
     </div>
   );
 }

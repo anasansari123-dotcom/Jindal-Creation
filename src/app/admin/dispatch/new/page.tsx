@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -13,15 +13,44 @@ import { PageLoader } from "@/components/ui/loading";
 import { toast } from "@/components/ui/toast";
 import { formatCurrency } from "@/lib/utils";
 import {
-  calculateBillLineTotal,
   formatBillLineCalculation,
-  piecePriceFromBox,
 } from "@/lib/bill-pricing";
+import {
+  computeDispatchBillTotals,
+  previewCreditApplication,
+} from "@/lib/dispatch-bill-totals";
 import { BillItemsTable } from "@/components/bill-items-table";
 import { PAYMENT_METHODS } from "@/lib/constants";
-import { formatProductDisplay } from "@/lib/product-display";
-import { formatProductStock, isKgProduct } from "@/lib/product-units";
-import { ArrowLeft, Plus, Trash2, Save, CalendarClock } from "lucide-react";
+import { isKgProduct } from "@/lib/product-units";
+import { AddBillProductsDialog } from "@/components/add-bill-products-dialog";
+import { BillFormItemsEditor } from "@/components/bill-form-items-editor";
+import {
+  type BillItemRow,
+  billItemRowHasQty,
+  billItemRowToApiPayload,
+  billItemRowTotal,
+  buildBillPreviewLines,
+  emptyBillItemRow,
+  mergeBillItemRows,
+  patchBillItemField,
+  totalQtyForBillItem,
+} from "@/lib/dispatch-bill-form";
+import {
+  clearDispatchBillDraft,
+  dispatchBillDraftHasContent,
+  loadDispatchBillDraft,
+  saveDispatchBillDraft,
+} from "@/lib/dispatch-bill-draft";
+import { ArrowLeft, Plus, Save, CalendarClock, PackagePlus, ListPlus, Wallet, RotateCcw } from "lucide-react";
+
+interface AccountBalance {
+  pendingFromOldBills: number;
+  netAccountPending: number;
+  creditBalance: number;
+  availableCredit: number;
+  pendingBillCount: number;
+  pendingBills: Array<{ billId: string; pending: number }>;
+}
 
 export default function NewDispatchBillPage() {
   return (
@@ -52,68 +81,6 @@ interface Product {
   unit?: string;
 }
 
-interface ItemRow {
-  productId: string;
-  boxQty: number;
-  pieceQty: number;
-  kgQty: number;
-  boxDiscount: number;
-  pieceDiscount: number;
-  kgDiscount: number;
-}
-
-function buildPreviewLines(item: ItemRow, p: Product) {
-  const lines: ReturnType<typeof calculateBillLineTotal>[] = [];
-  if (isKgProduct(p)) {
-    if (item.kgQty > 0) {
-      lines.push(
-        calculateBillLineTotal({
-          sellMode: "kg",
-          kgQty: item.kgQty,
-          boxPrice: p.sellingPrice,
-          piecesPerBox: 1,
-          discount: item.kgDiscount,
-        })
-      );
-    }
-    return lines;
-  }
-  if (item.boxQty > 0) {
-    lines.push(
-      calculateBillLineTotal({
-        sellMode: "box",
-        boxQty: item.boxQty,
-        boxPrice: p.sellingPrice,
-        piecesPerBox: p.piecesPerBox,
-        discount: item.boxDiscount,
-      })
-    );
-  }
-  if (item.pieceQty > 0) {
-    lines.push(
-      calculateBillLineTotal({
-        sellMode: "piece",
-        pieceQty: item.pieceQty,
-        boxPrice: p.sellingPrice,
-        piecesPerBox: p.piecesPerBox,
-        discount: item.pieceDiscount,
-      })
-    );
-  }
-  return lines;
-}
-
-function totalQtyForItem(item: ItemRow, p: Product) {
-  if (isKgProduct(p)) return item.kgQty;
-  const ppb = Math.max(p.piecesPerBox, 1);
-  return item.boxQty * ppb + item.pieceQty;
-}
-
-function itemHasQty(item: ItemRow, p?: Product) {
-  if (p && isKgProduct(p)) return item.kgQty > 0;
-  return item.boxQty > 0 || item.pieceQty > 0;
-}
-
 function NewDispatchBillContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -139,24 +106,174 @@ function NewDispatchBillContent() {
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [salespersonName, setSalespersonName] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<ItemRow[]>([
-    { productId: "", boxQty: 0, pieceQty: 0, kgQty: 0, boxDiscount: 0, pieceDiscount: 0, kgDiscount: 0 },
-  ]);
+  const [items, setItems] = useState<BillItemRow[]>([emptyBillItemRow()]);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [bulkAddQuickCreate, setBulkAddQuickCreate] = useState(false);
+  const [accountBalance, setAccountBalance] = useState<AccountBalance | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [includeCarriedForward, setIncludeCarriedForward] = useState(true);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const draftRestoreToastShown = useRef(false);
 
   const isAdvance = orderType === "advance";
 
+  const loadAccountBalance = async (id: string) => {
+    setBalanceLoading(true);
+    try {
+      const res = await fetch(`/api/customers/${id}/account-balance`);
+      const data = await res.json();
+      if (res.ok) {
+        setAccountBalance(data);
+        if ((data.pendingFromOldBills || 0) > 0) setIncludeCarriedForward(true);
+      } else {
+        setAccountBalance(null);
+      }
+    } catch {
+      setAccountBalance(null);
+    } finally {
+      setBalanceLoading(false);
+    }
+  };
+
+  const applyDraft = (draft: ReturnType<typeof loadDispatchBillDraft>, catalog: Product[]) => {
+    if (!draft) return catalog;
+    setCustomerId(draft.customerId);
+    setCustomerName(draft.customerName);
+    setCustomerCompany(draft.customerCompany);
+    setCustomerPhone(draft.customerPhone);
+    setCustomerAddress(draft.customerAddress);
+    setCustomerCity(draft.customerCity);
+    setDispatchDate(draft.dispatchDate);
+    setOrderType(draft.orderType);
+    setReadyByDate(draft.readyByDate);
+    setDiscount(draft.discount);
+    setAdvance(draft.advance);
+    setPaymentMode(draft.paymentMode || "Cash");
+    setSalespersonName(draft.salespersonName);
+    setNotes(draft.notes);
+    setItems(draft.items.length > 0 ? draft.items : [emptyBillItemRow()]);
+    setIncludeCarriedForward(draft.includeCarriedForward ?? true);
+    setDraftSavedAt(draft.savedAt);
+
+    const merged = [...catalog];
+    for (const extra of draft.extraProducts || []) {
+      if (!merged.some((p) => p._id === extra._id)) merged.push(extra);
+    }
+    if (draft.customerId) loadAccountBalance(draft.customerId);
+    return merged;
+  };
+
+  const resetFormToDefaults = (salesperson?: string) => {
+    setCustomerId("");
+    setCustomerName("");
+    setCustomerCompany("");
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setCustomerCity("");
+    setDispatchDate(new Date().toISOString().split("T")[0]);
+    setOrderType(defaultAdvance ? "advance" : "immediate");
+    setReadyByDate("");
+    setDiscount(0);
+    setAdvance(0);
+    setPaymentMode("Cash");
+    setSalespersonName(salesperson || "");
+    setNotes("");
+    setItems([emptyBillItemRow()]);
+    setIncludeCarriedForward(true);
+    setAccountBalance(null);
+    setDraftSavedAt(null);
+  };
+
+  const handleClearDraft = () => {
+    clearDispatchBillDraft();
+    resetFormToDefaults(salespersonName);
+    toast("Bill draft clear ho gaya", "success");
+  };
+
   useEffect(() => {
     Promise.all([
-      fetch("/api/customers?limit=500").then((r) => r.json()),
+      fetch("/api/customers?lite=true&limit=500").then((r) => r.json()),
       fetch("/api/products?limit=500").then((r) => r.json()),
       fetch("/api/auth/me").then((r) => r.json()),
     ]).then(([c, p, me]) => {
       setCustomers(c.customers || []);
-      setProducts(p.products || []);
-      if (me.user?.name) setSalespersonName(me.user.name);
+      const catalog: Product[] = p.products || [];
+      const draft = loadDispatchBillDraft();
+
+      if (draft && dispatchBillDraftHasContent(draft)) {
+        setProducts(applyDraft(draft, catalog));
+        if (!draftRestoreToastShown.current) {
+          draftRestoreToastShown.current = true;
+          toast("Aapka bill draft restore ho gaya — jaise chhoda tha waisa hi", "success");
+        }
+      } else {
+        setProducts(catalog);
+        if (me.user?.name) setSalespersonName(me.user.name);
+      }
+
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+
+    const timer = window.setTimeout(() => {
+      const itemProductIds = new Set(
+        items.filter((row) => row.productId).map((row) => row.productId)
+      );
+      const extraProducts = products.filter((p) => itemProductIds.has(p._id));
+      const payload = {
+        customerId,
+        customerName,
+        customerCompany,
+        customerPhone,
+        customerAddress,
+        customerCity,
+        dispatchDate,
+        orderType,
+        readyByDate,
+        discount,
+        advance,
+        paymentMode,
+        salespersonName,
+        notes,
+        items,
+        extraProducts,
+        includeCarriedForward,
+      };
+
+      if (!dispatchBillDraftHasContent(payload)) {
+        clearDispatchBillDraft();
+        setDraftSavedAt(null);
+        return;
+      }
+
+      saveDispatchBillDraft(payload);
+      setDraftSavedAt(new Date().toISOString());
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    loading,
+    customerId,
+    customerName,
+    customerCompany,
+    customerPhone,
+    customerAddress,
+    customerCity,
+    dispatchDate,
+    orderType,
+    readyByDate,
+    discount,
+    advance,
+    paymentMode,
+    salespersonName,
+    notes,
+    items,
+    products,
+    includeCarriedForward,
+  ]);
 
   const onCustomerSelect = (id: string) => {
     setCustomerId(id);
@@ -167,35 +284,65 @@ function NewDispatchBillContent() {
       setCustomerPhone(c.phone || "");
       setCustomerAddress(c.address || "");
       setCustomerCity(c.city || "");
+      setIncludeCarriedForward(true);
+      loadAccountBalance(id);
+    } else {
+      setAccountBalance(null);
+      setIncludeCarriedForward(true);
     }
   };
 
-  const updateItem = (index: number, field: keyof ItemRow, value: string | number) => {
-    setItems((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
-      return next;
-    });
+  const updateItem = (index: number, field: keyof BillItemRow, value: string | number) => {
+    setItems((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row;
+        const product =
+          field === "productId"
+            ? products.find((x) => x._id === value)
+            : products.find((x) => x._id === row.productId);
+        return patchBillItemField(row, field, value, product);
+      })
+    );
   };
 
-  const getItemTotal = (item: ItemRow) => {
+  const getItemTotal = (item: BillItemRow) => {
     const p = products.find((x) => x._id === item.productId);
     if (!p) return 0;
-    return buildPreviewLines(item, p).reduce((s, line) => s + line.total, 0);
+    return billItemRowTotal(item, p);
+  };
+
+  const openQuickAdd = (withNewProduct = false) => {
+    setBulkAddQuickCreate(withNewProduct);
+    setBulkAddOpen(true);
   };
 
   const subtotal = items.reduce((s, i) => s + (i.productId ? getItemTotal(i) : 0), 0);
-  const total = subtotal - discount;
-  const pending = Math.max(0, total - advance);
+  const billDiscount = advance > 0 ? discount : 0;
+  const carriedForward =
+    customerId && includeCarriedForward ? accountBalance?.pendingFromOldBills || 0 : 0;
+  const { creditApplied: previewCredit } = previewCreditApplication(
+    Math.max(0, subtotal - billDiscount) + carriedForward,
+    advance,
+    accountBalance?.availableCredit || 0
+  );
+  const billTotals = computeDispatchBillTotals({
+    subtotal,
+    discount: billDiscount,
+    carriedForwardPending: carriedForward,
+    cashPaid: advance,
+    creditApplied: customerId ? previewCredit : 0,
+  });
+  const { currentBillAmount, total, pending, creditAdded } = billTotals;
+  const cashPaidPreview = advance;
 
   const previewItems = items
     .filter((i) => {
       const p = products.find((x) => x._id === i.productId);
-      return i.productId && p && itemHasQty(i, p);
+      return i.productId && p && billItemRowHasQty(i, p);
     })
     .flatMap((item) => {
       const p = products.find((x) => x._id === item.productId)!;
-      return buildPreviewLines(item, p).map((line) => ({
+      return buildBillPreviewLines(item, p).map((line) => ({
         productName: p.name,
         productCode: p.productId,
         pieces: line.pieces,
@@ -224,7 +371,7 @@ function NewDispatchBillContent() {
     }
     const validItems = items.filter((i) => {
       const p = products.find((x) => x._id === i.productId);
-      return i.productId && p && itemHasQty(i, p);
+      return i.productId && p && billItemRowHasQty(i, p);
     });
     if (validItems.length === 0) {
       toast("Add at least one product with box, piece, or kg qty", "error");
@@ -243,19 +390,12 @@ function NewDispatchBillContent() {
     for (const item of validItems) {
       const p = products.find((x) => x._id === item.productId);
       if (!p) continue;
-      const needed = totalQtyForItem(item, p);
+      const needed = totalQtyForBillItem(item, p);
       if (needed <= 0) {
         toast(
           isKgProduct(p)
             ? `Enter kg qty for ${p.name}`
             : `Enter box or piece qty for ${p.name}`,
-          "error"
-        );
-        return;
-      }
-      if (!isAdvance && needed > p.currentStock) {
-        toast(
-          `Insufficient stock for ${p.name}. Available: ${formatProductStock(p)}`,
           "error"
         );
         return;
@@ -278,24 +418,12 @@ function NewDispatchBillContent() {
           orderType,
           readyByDate: isAdvance ? readyByDate : undefined,
           items: validItems.map((i) => {
-            const p = products.find((x) => x._id === i.productId);
-            if (p && isKgProduct(p)) {
-              return {
-                productId: i.productId,
-                kgQty: i.kgQty,
-                kgDiscount: i.kgDiscount,
-              };
-            }
-            return {
-              productId: i.productId,
-              boxQty: i.boxQty,
-              pieceQty: i.pieceQty,
-              boxDiscount: i.boxDiscount,
-              pieceDiscount: i.pieceDiscount,
-            };
+            const p = products.find((x) => x._id === i.productId)!;
+            return billItemRowToApiPayload(i, p);
           }),
-          discount,
+          discount: advance > 0 ? discount : 0,
           advance,
+          includeCarriedForward: customerId ? includeCarriedForward : false,
           paymentMode: advance > 0 ? paymentMode : undefined,
           salespersonName: salespersonName.trim(),
           notes,
@@ -307,6 +435,7 @@ function NewDispatchBillContent() {
         return;
       }
       toast(isAdvance ? "Advance order saved" : "Dispatch bill created", "success");
+      clearDispatchBillDraft();
       router.push(`/admin/dispatch/${data.dispatch._id}`);
     } catch {
       toast("Something went wrong", "error");
@@ -319,11 +448,11 @@ function NewDispatchBillContent() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 flex-wrap">
         <Link href="/admin/dispatch">
           <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
         </Link>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-serif font-bold text-navy">
             {isAdvance ? "Advance Order (Pehle se Booking)" : "Create Dispatch Bill"}
           </h1>
@@ -333,6 +462,16 @@ function NewDispatchBillContent() {
               : "Stock will NOT be deducted until Final Bill"}
           </p>
         </div>
+        {draftSavedAt && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+              Draft saved — doosri tab par jao, wapas aane par details rahengi
+            </span>
+            <Button type="button" variant="outline" size="sm" onClick={handleClearDraft}>
+              <RotateCcw className="h-4 w-4" /> Draft clear
+            </Button>
+          </div>
+        )}
       </div>
 
       {isAdvance && (
@@ -422,278 +561,48 @@ function NewDispatchBillContent() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
             <CardTitle>Products</CardTitle>
+            <div className="flex gap-2 flex-wrap">
+            <Button
+              type="button"
+              variant="gold"
+              size="sm"
+              onClick={() => setBulkAddOpen(true)}
+            >
+              <ListPlus className="h-4 w-4" /> Quick Add Products
+            </Button>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() =>
-                setItems((p) => [
-                  ...p,
-                  { productId: "", boxQty: 0, pieceQty: 0, kgQty: 0, boxDiscount: 0, pieceDiscount: 0, kgDiscount: 0 },
-                ])
-              }
+              onClick={() => openQuickAdd(true)}
+            >
+              <PackagePlus className="h-4 w-4" /> Naya Product
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="hidden md:inline-flex"
+              onClick={() => setItems((p) => [...p, emptyBillItemRow()])}
             >
               <Plus className="h-4 w-4" /> Add Product
             </Button>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {items.map((item, index) => {
-              const p = products.find((x) => x._id === item.productId);
-              const isKg = p ? isKgProduct(p) : false;
-              const pieceRate = p && !isKg ? piecePriceFromBox(p.sellingPrice, p.piecesPerBox) : 0;
-              const lines = p ? buildPreviewLines(item, p) : [];
-              const needed = p ? totalQtyForItem(item, p) : 0;
-              const stockOk = isAdvance || !p || needed === 0 || needed <= p.currentStock;
-
-              return (
-                <div key={index} className="border rounded-lg p-4 space-y-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="flex-1 min-w-[200px]">
-                      <Label>Product</Label>
-                      <Select
-                        value={item.productId}
-                        onChange={(e) => updateItem(index, "productId", e.target.value)}
-                      >
-                        <option value="">Select product</option>
-                        {products.map((pr) => (
-                          <option key={pr._id} value={pr._id}>
-                            {formatProductDisplay(pr.name, pr.productId)}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    {items.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="mt-6"
-                        onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    )}
-                  </div>
-
-                  {p && (
-                    <>
-                      <div className="grid grid-cols-2 gap-3 text-xs text-gray-600 bg-gray-50 rounded p-3">
-                        <div>
-                          <span className="text-gray-400 block">Available Stock</span>
-                          <strong className="text-navy">
-                            {formatProductStock(p)}
-                          </strong>
-                        </div>
-                        <div>
-                          <span className="text-gray-400 block">Default Rates</span>
-                          <strong className="text-navy">
-                            {isKg
-                              ? `${formatCurrency(p.sellingPrice)}/Kg`
-                              : `${formatCurrency(p.sellingPrice)}/Box · ${formatCurrency(pieceRate)}/Pc`}
-                          </strong>
-                        </div>
-                      </div>
-
-                      {isKg ? (
-                        <div className="rounded-lg border border-emerald-200 bg-white p-4 space-y-3">
-                          <p className="text-sm font-semibold text-navy">Kg (Weight)</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>Qty (Kg)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                step="0.001"
-                                value={item.kgQty || ""}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateItem(index, "kgQty", Math.max(0, Number(e.target.value) || 0))
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Rate / Kg</Label>
-                              <Input
-                                type="text"
-                                readOnly
-                                value={formatCurrency(p.sellingPrice)}
-                                className="bg-gray-50"
-                              />
-                            </div>
-                            <div className="col-span-2">
-                              <Label>Discount (₹)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.kgDiscount}
-                                onChange={(e) =>
-                                  updateItem(index, "kgDiscount", Number(e.target.value))
-                                }
-                              />
-                            </div>
-                          </div>
-                          {item.kgQty > 0 && (
-                            <p className="text-xs text-green-700 font-medium">
-                              {item.kgQty} × {formatCurrency(p.sellingPrice)} ={" "}
-                              {formatCurrency(
-                                calculateBillLineTotal({
-                                  sellMode: "kg",
-                                  kgQty: item.kgQty,
-                                  boxPrice: p.sellingPrice,
-                                  piecesPerBox: 1,
-                                  discount: item.kgDiscount,
-                                }).total
-                              )}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {/* Box section */}
-                        <div className="rounded-lg border border-navy/10 bg-white p-4 space-y-3">
-                          <p className="text-sm font-semibold text-navy">Box</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>Qty (Box)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.boxQty || ""}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateItem(index, "boxQty", Math.max(0, Number(e.target.value) || 0))
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Rate / Box</Label>
-                              <Input
-                                type="text"
-                                readOnly
-                                value={formatCurrency(p.sellingPrice)}
-                                className="bg-gray-50"
-                              />
-                            </div>
-                            <div className="col-span-2">
-                              <Label>Discount (₹)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.boxDiscount}
-                                onChange={(e) =>
-                                  updateItem(index, "boxDiscount", Number(e.target.value))
-                                }
-                              />
-                            </div>
-                          </div>
-                          {item.boxQty > 0 && (
-                            <p className="text-xs text-green-700 font-medium">
-                              {item.boxQty} × {formatCurrency(p.sellingPrice)} ={" "}
-                              {formatCurrency(
-                                calculateBillLineTotal({
-                                  sellMode: "box",
-                                  boxQty: item.boxQty,
-                                  boxPrice: p.sellingPrice,
-                                  piecesPerBox: p.piecesPerBox,
-                                  discount: item.boxDiscount,
-                                }).total
-                              )}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Piece section */}
-                        <div className="rounded-lg border border-gold/30 bg-white p-4 space-y-3">
-                          <p className="text-sm font-semibold text-navy">Piece</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>Qty (Pc)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.pieceQty || ""}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateItem(index, "pieceQty", Math.max(0, Number(e.target.value) || 0))
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label>Rate / Pc</Label>
-                              <Input
-                                type="text"
-                                readOnly
-                                value={formatCurrency(pieceRate)}
-                                className="bg-gray-50"
-                              />
-                            </div>
-                            <div className="col-span-2">
-                              <Label>Discount (₹)</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={item.pieceDiscount}
-                                onChange={(e) =>
-                                  updateItem(index, "pieceDiscount", Number(e.target.value))
-                                }
-                              />
-                            </div>
-                          </div>
-                          {item.pieceQty > 0 && (
-                            <p className="text-xs text-green-700 font-medium">
-                              {item.pieceQty} × {formatCurrency(pieceRate)} ={" "}
-                              {formatCurrency(
-                                calculateBillLineTotal({
-                                  sellMode: "piece",
-                                  pieceQty: item.pieceQty,
-                                  boxPrice: p.sellingPrice,
-                                  piecesPerBox: p.piecesPerBox,
-                                  discount: item.pieceDiscount,
-                                }).total
-                              )}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      )}
-
-                      {lines.length > 0 && (
-                        <div
-                          className={`rounded-lg p-3 text-sm space-y-1 ${
-                            stockOk ? "bg-green-50 border border-green-100" : "bg-red-50 border border-red-200"
-                          }`}
-                        >
-                          <p className="font-medium text-navy">
-                            Bill me {lines.length} line{lines.length > 1 ? "s" : ""} · Total stock: {needed}{isKg ? " kg" : " pcs"}
-                          </p>
-                          {lines.map((line, li) => (
-                            <p key={li} className="text-gray-700">
-                              Line {li + 1}: {formatBillLineCalculation(line)} = {formatCurrency(line.total)}
-                            </p>
-                          ))}
-                          <p className="font-bold text-green-700 border-t pt-2 mt-2">
-                            Product Total = {formatCurrency(getItemTotal(item))}
-                          </p>
-                          {!stockOk && !isAdvance && (
-                            <p className="text-red-600 text-xs">
-                              Not enough stock. Available: {formatProductStock(p)}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {!itemHasQty(item, p) && (
-                        <p className="text-xs text-amber-600">
-                          {isKg ? "Kg qty enter karein" : "Box ya Piece me se koi ek qty enter karein"}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+          <CardContent className="space-y-4">
+            <div className="hidden md:block">
+              <BillFormItemsEditor
+                items={items}
+                products={products}
+                onItemsChange={setItems}
+                onOpenQuickAdd={() => openQuickAdd(true)}
+              />
+            </div>
+            <p className="md:hidden text-sm text-gray-600">
+              Mobile par products <strong>Quick Add Products</strong> se jodhein — neeche Bill Preview mein sab dikhega.
+            </p>
           </CardContent>
         </Card>
 
@@ -708,18 +617,105 @@ function NewDispatchBillContent() {
           </Card>
         )}
 
+        {customerId && (
+          <Card className="border-gold/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Wallet className="h-5 w-5 text-gold" />
+                Customer Account Balance
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {balanceLoading ? (
+                <p className="text-gray-500">Account balance load ho rahi hai...</p>
+              ) : accountBalance ? (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="rounded-lg bg-red-50 px-3 py-2">
+                      <p className="text-xs text-gray-500">Purani Bills Pending</p>
+                      <p className="font-bold text-red-700">{formatCurrency(accountBalance.pendingFromOldBills)}</p>
+                      {accountBalance.pendingBillCount > 0 && (
+                        <p className="text-xs text-gray-500 mt-1">{accountBalance.pendingBillCount} bill(s)</p>
+                      )}
+                    </div>
+                    <div className="rounded-lg bg-green-50 px-3 py-2">
+                      <p className="text-xs text-gray-500">Account Advance / Credit</p>
+                      <p className="font-bold text-green-700">{formatCurrency(accountBalance.availableCredit)}</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 px-3 py-2">
+                      <p className="text-xs text-gray-500">Net Account Pending</p>
+                      <p className="font-bold text-navy">{formatCurrency(accountBalance.netAccountPending)}</p>
+                    </div>
+                  </div>
+                  {accountBalance.pendingFromOldBills > 0 && (
+                    <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-gold/30 bg-gold/5 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={includeCarriedForward}
+                        onChange={(e) => setIncludeCarriedForward(e.target.checked)}
+                      />
+                      <span>
+                        <strong>Purani pending is bill me add karein</strong>
+                        <span className="block text-xs text-gray-600 mt-0.5">
+                          {formatCurrency(accountBalance.pendingFromOldBills)} purani bill(s) se is nayi bill me add hoga.
+                          Purani bills settle ho jayengi — double count nahi hoga.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+                  {accountBalance.pendingBills.length > 0 && (
+                    <div className="text-xs text-gray-500 space-y-1">
+                      {accountBalance.pendingBills.map((b) => (
+                        <div key={b.billId} className="flex justify-between">
+                          <span>{b.billId}</span>
+                          <span>{formatCurrency(b.pending)} pending</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {accountBalance.availableCredit > 0 && (
+                    <p className="text-xs text-green-700">
+                      Bill save hone par account se {formatCurrency(Math.min(previewCredit, accountBalance.availableCredit))} advance auto apply hoga (agar bill me jagah ho).
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-gray-500">Account balance load nahi hui.</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader><CardTitle>Bill Summary</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <Label>Bill Discount (₹)</Label>
-                <Input type="number" min={0} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
-              </div>
-              <div>
                 <Label>{isAdvance ? "Advance Payment (₹) *" : "Customer Paid (₹)"}</Label>
-                <Input type="number" min={0} value={advance} onChange={(e) => setAdvance(Number(e.target.value))} />
+                <Input
+                  type="number"
+                  min={0}
+                  value={advance > 0 ? advance : ""}
+                  placeholder="0"
+                  onChange={(e) => {
+                    const v = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0);
+                    setAdvance(v);
+                    if (v <= 0) setDiscount(0);
+                  }}
+                />
               </div>
+              {advance > 0 && (
+                <div>
+                  <Label>Bill Discount (₹)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={discount}
+                    onChange={(e) => setDiscount(Number(e.target.value))}
+                  />
+                </div>
+              )}
               <div>
                 <Label>Payment Mode</Label>
                 <Select
@@ -735,14 +731,41 @@ function NewDispatchBillContent() {
             </div>
             <div className="rounded-lg bg-gray-50 p-4 space-y-2 text-sm">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-              {discount > 0 && (
-                <div className="flex justify-between text-red-600"><span>Discount</span><span>-{formatCurrency(discount)}</span></div>
+              {billDiscount > 0 && (
+                <div className="flex justify-between text-red-600"><span>Discount</span><span>-{formatCurrency(billDiscount)}</span></div>
+              )}
+              {carriedForward > 0 && (
+                <>
+                  <div className="flex justify-between"><span>Is Bill Ka Amount</span><span>{formatCurrency(currentBillAmount)}</span></div>
+                  <div className="flex justify-between text-amber-700 font-medium">
+                    <span>+ Purani Pending (Account)</span>
+                    <span>{formatCurrency(carriedForward)}</span>
+                  </div>
+                </>
               )}
               <div className="flex justify-between font-bold text-base border-t pt-2">
                 <span>Grand Total</span><span>{formatCurrency(total)}</span>
               </div>
-              <div className="flex justify-between text-green-700"><span>Customer Paid</span><span>{formatCurrency(advance)}</span></div>
-              <div className="flex justify-between text-red-600 font-bold"><span>Pending</span><span>{formatCurrency(pending)}</span></div>
+              {cashPaidPreview > 0 && (
+                <div className="flex justify-between text-green-700"><span>Customer Paid</span><span>{formatCurrency(cashPaidPreview)}</span></div>
+              )}
+              {previewCredit > 0 && (
+                <div className="flex justify-between text-green-700">
+                  <span>Account Advance (bill par use)</span>
+                  <span>{formatCurrency(previewCredit)}</span>
+                </div>
+              )}
+              {creditAdded > 0 && (
+                <div className="flex justify-between text-gold font-semibold">
+                  <span>Advance (Account me save)</span>
+                  <span>{formatCurrency(creditAdded)}</span>
+                </div>
+              )}
+              {pending > 0 ? (
+                <div className="flex justify-between text-red-600 font-bold"><span>Pending</span><span>{formatCurrency(pending)}</span></div>
+              ) : creditAdded <= 0 ? (
+                <div className="flex justify-between text-green-700 font-bold"><span>Pending</span><span>{formatCurrency(0)}</span></div>
+              ) : null}
             </div>
             <div>
               <Label>Notes</Label>
@@ -755,6 +778,20 @@ function NewDispatchBillContent() {
           <Save className="h-5 w-5" /> {submitting ? "Saving..." : isAdvance ? "Save Advance Order" : "Create Dispatch Bill"}
         </Button>
       </form>
+
+      <AddBillProductsDialog
+        open={bulkAddOpen}
+        onOpenChange={(open) => {
+          setBulkAddOpen(open);
+          if (!open) setBulkAddQuickCreate(false);
+        }}
+        products={products}
+        onProductsChange={setProducts}
+        startWithQuickCreate={bulkAddQuickCreate}
+        onAdd={(rows) =>
+          setItems((prev) => mergeBillItemRows(prev, rows, products))
+        }
+      />
     </div>
   );
 }

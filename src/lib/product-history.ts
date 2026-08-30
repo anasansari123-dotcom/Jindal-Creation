@@ -1,4 +1,4 @@
-import { enrichBillLineItem, type SellMode } from "@/lib/bill-pricing";
+import { enrichBillLineItem, looseShortfallQty, type SellMode } from "@/lib/bill-pricing";
 
 export type ProductHistoryBillType = "Order" | "Dispatch" | "Final" | "Confirm";
 
@@ -8,6 +8,8 @@ export interface ProductHistoryEntry {
   customerName: string;
   customerCode?: string;
   billId: string;
+  /** Dispatch bill code — matches InventoryTransaction.orderId */
+  dispatchCode?: string;
   billType: ProductHistoryBillType;
   billLink?: string;
   pieces: number;
@@ -20,6 +22,8 @@ export interface ProductHistoryEntry {
   piecesPerBox: number;
   sellMode: SellMode;
   total: number;
+  soldWithoutPurchase?: boolean;
+  shortfallQty?: number;
 }
 
 interface LineItem {
@@ -167,6 +171,7 @@ export function buildProductHistory(
         customerName: d.customerName,
         customerCode: d.customerCode,
         billId,
+        dispatchCode: d.dispatchId,
         billType,
         billLink: `/admin/dispatch/${d._id.toString()}`,
         ...lineToHistoryFields(item),
@@ -198,13 +203,63 @@ export function buildProductHistory(
   );
 }
 
-export function summarizeProductHistory(entries: ProductHistoryEntry[]) {
+export function summarizeProductHistory(
+  entries: ProductHistoryEntry[],
+  currentStock?: number
+) {
+  const totalSoldWithoutPurchase = entries.reduce(
+    (s, e) => s + (e.shortfallQty || 0),
+    0
+  );
   return {
     totalEntries: entries.length,
-    totalPieces: entries.reduce((s, e) => s + e.pieces, 0),
+    totalPieces: entries.reduce((s, e) => s + e.loosePieces, 0),
     totalBoxes: entries.reduce((s, e) => s + e.fullBoxes, 0),
     totalLoosePieces: entries.reduce((s, e) => s + e.loosePieces, 0),
     totalAmount: entries.reduce((s, e) => s + e.total, 0),
     uniqueCustomers: new Set(entries.map((e) => e.customerName)).size,
+    totalSoldWithoutPurchase,
+    binaPurchaseSales: entries.filter((e) => (e.shortfallQty || 0) > 0).length,
+    isNegativeStock: currentStock !== undefined && currentStock < 0,
   };
+}
+
+/** Attach bina-purchase shortfall from Final Bill inventory transactions */
+export function enrichHistoryWithOversales(
+  entries: ProductHistoryEntry[],
+  transactions: Array<{
+    orderId?: string;
+    shortfallQty?: number;
+    soldWithoutPurchase?: boolean;
+  }>
+): ProductHistoryEntry[] {
+  const shortfallByDispatch = new Map<string, number>();
+  for (const tx of transactions) {
+    if (!tx.orderId || !tx.soldWithoutPurchase) continue;
+    shortfallByDispatch.set(
+      tx.orderId,
+      (shortfallByDispatch.get(tx.orderId) || 0) + (tx.shortfallQty || 0)
+    );
+  }
+
+  return entries.map((entry) => {
+    if (!entry.dispatchCode) return entry;
+    const shortfallTotal = shortfallByDispatch.get(entry.dispatchCode) || 0;
+    if (shortfallTotal <= 0) return entry;
+    const shortfallQty = looseShortfallQty(shortfallTotal, {
+      pieces: entry.pieces,
+      boxes: entry.fullBoxes,
+      fullBoxes: entry.fullBoxes,
+      loosePieces: entry.loosePieces,
+      piecesPerBox: entry.piecesPerBox,
+      sellMode: entry.sellMode,
+      quantity: entry.quantity,
+    });
+    if (shortfallQty <= 0) return entry;
+    return {
+      ...entry,
+      soldWithoutPurchase: true,
+      shortfallQty,
+    };
+  });
 }

@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
-type ReportTab = "sales" | "inventory" | "customers" | "payments";
+type ReportTab = "sales" | "inventory" | "customers" | "payments" | "oversales";
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<ReportTab>("sales");
@@ -32,6 +32,7 @@ export default function ReportsPage() {
   const tabs: { id: ReportTab; label: string }[] = [
     { id: "sales", label: "Sales" },
     { id: "inventory", label: "Inventory" },
+    { id: "oversales", label: "Bina Purchase Sale" },
     { id: "customers", label: "Customers" },
     { id: "payments", label: "Payments" },
   ];
@@ -150,6 +151,80 @@ export default function ReportsPage() {
             </div>
           )}
 
+          {tab === "oversales" && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Total Entries (bina purchase)</p>
+                    <p className="text-2xl font-bold text-navy">{report.totalEntries as number}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Total Shortfall Qty</p>
+                    <p className="text-2xl font-bold text-red-600">{report.totalShortfall as number}</p>
+                  </CardContent>
+                </Card>
+              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Bina Purchase ke Sell — Detail</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+                    Ye woh sales hain jahan stock kam tha ya 0 tha — Final Bill par stock (-) minus me gaya.
+                    Purchase / Stock In ke baad ye list kam hoti jayegi.
+                  </p>
+                  <ReportTable
+                    title=""
+                    headers={[
+                      "Date",
+                      "Product",
+                      "Bill",
+                      "Customer",
+                      "Sold Qty",
+                      "Bina Purchase",
+                      "Stock Before",
+                      "Stock After",
+                      "By",
+                    ]}
+                    rows={
+                      (report.items as Array<{
+                        date: string;
+                        productName: string;
+                        productCode: string;
+                        billId?: string;
+                        customerName: string;
+                        qtySold: number;
+                        shortfallQty: number;
+                        stockBefore: number;
+                        stockAfter: number;
+                        sellingUnit?: string;
+                        createdByName: string;
+                      }>)?.map((row) => [
+                        formatDateTime(row.date),
+                        `${row.productName} (${row.productCode})`,
+                        row.billId || "—",
+                        row.customerName,
+                        `${row.qtySold}${row.sellingUnit === "kg" ? " kg" : " pcs"}`,
+                        <span key={`sf-${row.productCode}`} className="font-bold text-red-600">
+                          (-) {row.shortfallQty}
+                          {row.sellingUnit === "kg" ? " kg" : " pcs"}
+                        </span>,
+                        row.stockBefore,
+                        <span key={`after-${row.productCode}`} className={row.stockAfter < 0 ? "text-red-600 font-bold" : ""}>
+                          {row.stockAfter}
+                        </span>,
+                        row.createdByName,
+                      ]) || []
+                    }
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {tab === "customers" && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card>
@@ -193,22 +268,29 @@ export default function ReportsPage() {
 
           {tab === "payments" && (
             <div className="space-y-6">
+              <p className="text-xs text-gray-500">
+                {(report.scope as string) === "period"
+                  ? "Selected date range — bills created in this period"
+                  : "All customers — same totals as Customers & Payments pages"}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card>
                   <CardContent className="p-4">
-                    <p className="text-xs text-gray-500">Total Advance</p>
+                    <p className="text-xs text-gray-500">Customer Paid</p>
+                    <p className="text-2xl font-bold text-navy">{formatCurrency((report.totalCashPaid ?? report.totalPaid) as number)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-gray-500">
+                      {(report.scope as string) === "period" ? "Advance Saved (Period)" : "Account Advance"}
+                    </p>
                     <p className="text-2xl font-bold text-navy">{formatCurrency(report.totalAdvance as number)}</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
-                    <p className="text-xs text-gray-500">Total Paid</p>
-                    <p className="text-2xl font-bold text-navy">{formatCurrency(report.totalPaid as number)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs text-gray-500">Total Pending</p>
+                    <p className="text-xs text-gray-500">Bill Pending</p>
                     <p className="text-2xl font-bold text-navy">{formatCurrency(report.totalPending as number)}</p>
                   </CardContent>
                 </Card>

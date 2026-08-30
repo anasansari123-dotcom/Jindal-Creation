@@ -1,4 +1,5 @@
 import type { BillPaymentRow, PaymentSummary } from "@/lib/payment-ledger";
+import { getBillPaymentDisplay } from "@/lib/bill-payment-display";
 
 export type BillSource = "Order" | "Dispatch" | "ConfirmBill";
 export type BillDisplayType = "Order" | "Dispatch" | "Final" | "Confirm";
@@ -13,13 +14,16 @@ export interface CustomerBillEntry {
   paid: number;
   pending: number;
   paymentStatus: string;
+  customerName: string;
+  dispatchId?: string;
   linkPath?: string;
 }
 
-interface OrderDoc {
+export interface OrderDoc {
   _id: { toString(): string };
   orderId: string;
   orderDate: Date | string;
+  customerName?: string;
   total: number;
   advance: number;
   pending: number;
@@ -27,31 +31,92 @@ interface OrderDoc {
   paymentStatus: string;
 }
 
-interface DispatchDoc {
+export interface DispatchDoc {
   _id: { toString(): string };
   dispatchId: string;
   finalBillId?: string;
   billStatus: "DISPATCH" | "FINAL";
   orderId?: { toString(): string };
   dispatchDate: Date | string;
+  customerName?: string;
   total: number;
   advance: number;
   pending: number;
+  cashPaid?: number;
+  creditAdded?: number;
+  creditApplied?: number;
   paymentStatus: string;
 }
 
-interface ConfirmBillDoc {
+export interface ConfirmBillDoc {
   _id: { toString(): string };
   confirmBillId: string;
   orderId: { toString(): string };
   confirmDate: Date | string;
+  customerName?: string;
   total: number;
   advance: number;
   pending: number;
   paymentStatus: string;
 }
 
-/** Collect all bills for a customer without double-counting linked order/dispatch/confirm */
+export function normalizeCustomerName(name: string) {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function customerNamesMatch(a: string | undefined, b: string | undefined) {
+  if (!a?.trim() || !b?.trim()) return false;
+  return normalizeCustomerName(a) === normalizeCustomerName(b);
+}
+
+export function mapOrdersForCollect(orders: OrderDoc[]) {
+  return orders.map((o) => ({
+    _id: o._id,
+    orderId: o.orderId,
+    orderDate: o.orderDate,
+    customerName: o.customerName,
+    total: o.total,
+    advance: o.advance,
+    pending: o.pending,
+    paidAmount: o.paidAmount,
+    paymentStatus: o.paymentStatus,
+  }));
+}
+
+export function mapDispatchesForCollect(dispatches: DispatchDoc[]) {
+  return dispatches.map((d) => ({
+    _id: d._id,
+    dispatchId: d.dispatchId,
+    finalBillId: d.finalBillId,
+    billStatus: d.billStatus,
+    orderId: d.orderId,
+    dispatchDate: d.dispatchDate,
+    customerName: d.customerName,
+    total: d.total,
+    advance: d.advance,
+    pending: d.pending,
+    cashPaid: d.cashPaid,
+    creditAdded: d.creditAdded,
+    creditApplied: d.creditApplied,
+    paymentStatus: d.paymentStatus,
+  }));
+}
+
+export function mapConfirmBillsForCollect(confirmBills: ConfirmBillDoc[]) {
+  return confirmBills.map((cb) => ({
+    _id: cb._id,
+    confirmBillId: cb.confirmBillId,
+    orderId: cb.orderId,
+    confirmDate: cb.confirmDate,
+    customerName: cb.customerName,
+    total: cb.total,
+    advance: cb.advance,
+    pending: cb.pending,
+    paymentStatus: cb.paymentStatus,
+  }));
+}
+
+/** Collect all bills for a customer — Dispatch is source of truth; no double-count */
 export function collectCustomerBills(
   orders: OrderDoc[],
   dispatches: DispatchDoc[],
@@ -59,41 +124,29 @@ export function collectCustomerBills(
 ): CustomerBillEntry[] {
   const bills: CustomerBillEntry[] = [];
   const coveredOrderIds = new Set<string>();
-
-  for (const cb of confirmBills) {
-    const oid = cb.orderId.toString();
-    coveredOrderIds.add(oid);
-    bills.push({
-      refId: cb._id.toString(),
-      billId: cb.confirmBillId,
-      billType: "Confirm",
-      billSource: "ConfirmBill",
-      date: cb.confirmDate,
-      total: cb.total,
-      paid: cb.advance,
-      pending: cb.pending,
-      paymentStatus: cb.paymentStatus,
-      linkPath: undefined,
-    });
-  }
+  const finalBillIds = new Set(
+    dispatches
+      .filter((d) => d.billStatus === "FINAL")
+      .map((d) => d.finalBillId || d.dispatchId)
+  );
 
   for (const d of dispatches) {
-    if (d.orderId) {
-      const oid = d.orderId.toString();
-      if (coveredOrderIds.has(oid)) continue;
-      coveredOrderIds.add(oid);
-    }
+    if (d.orderId) coveredOrderIds.add(d.orderId.toString());
+    const refId = d._id.toString();
+    const payment = getBillPaymentDisplay(d);
     bills.push({
-      refId: d._id.toString(),
+      refId,
       billId: d.billStatus === "FINAL" && d.finalBillId ? d.finalBillId : d.dispatchId,
       billType: d.billStatus === "FINAL" ? "Final" : "Dispatch",
       billSource: "Dispatch",
       date: d.dispatchDate,
       total: d.total,
-      paid: d.advance,
-      pending: d.pending,
+      paid: payment.cashPaid,
+      pending: payment.pending,
       paymentStatus: d.paymentStatus,
-      linkPath: `/admin/dispatch/${d._id.toString()}`,
+      customerName: d.customerName || "—",
+      dispatchId: d.dispatchId,
+      linkPath: `/admin/dispatch/${refId}`,
     });
   }
 
@@ -110,29 +163,48 @@ export function collectCustomerBills(
       paid: o.paidAmount ?? o.advance,
       pending: o.pending,
       paymentStatus: o.paymentStatus,
+      customerName: o.customerName || "—",
       linkPath: `/admin/orders/${oid}`,
     });
   }
 
-  // Skip Confirm if same ID exists as Final dispatch (avoid double count)
-  const finalBillIds = new Set(
-    dispatches
-      .filter((d) => d.billStatus === "FINAL")
-      .map((d) => d.finalBillId || d.dispatchId)
-  );
-  const deduped = bills.filter(
-    (b) => !(b.billType === "Confirm" && finalBillIds.has(b.billId))
-  );
+  for (const cb of confirmBills) {
+    if (finalBillIds.has(cb.confirmBillId)) continue;
+    const oid = cb.orderId.toString();
+    if (coveredOrderIds.has(oid)) continue;
+    bills.push({
+      refId: cb._id.toString(),
+      billId: cb.confirmBillId,
+      billType: "Confirm",
+      billSource: "ConfirmBill",
+      date: cb.confirmDate,
+      total: cb.total,
+      paid: cb.advance,
+      pending: cb.pending,
+      paymentStatus: cb.paymentStatus,
+      customerName: cb.customerName || "—",
+      linkPath: undefined,
+    });
+  }
 
-  return deduped.sort(
+  return bills.sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
   );
+}
+
+/** Keep only bills whose stored name matches this customer record */
+export function filterBillsForCustomerRecord(
+  bills: CustomerBillEntry[],
+  customerName: string
+) {
+  return bills.filter((b) => customerNamesMatch(b.customerName, customerName));
 }
 
 /** Preview FIFO allocation before saving payment */
 export function previewPaymentAllocation(
   bills: CustomerBillEntry[],
-  amount: number
+  amount: number,
+  creditBalance = 0
 ) {
   let remaining = amount;
   const allocations: Array<{
@@ -159,12 +231,17 @@ export function previewPaymentAllocation(
   }
 
   const creditAdded = remaining;
-  const totalPendingAfter = Math.max(
+  const rawPendingAfter = Math.max(
     0,
     bills.reduce((s, b) => s + b.pending, 0) - amount + creditAdded
   );
+  const adjusted = applyCreditAgainstPending(rawPendingAfter, creditBalance);
 
-  return { allocations, creditAdded, totalPendingAfter };
+  return {
+    allocations,
+    creditAdded,
+    totalPendingAfter: adjusted.totalPending,
+  };
 }
 
 /** Pehle account advance se bill pending adjust — baaki hi pending/credit dikhao */
@@ -197,6 +274,7 @@ export function buildCustomerBillLedger(
       date: bill.date,
       billId: bill.billId,
       billType: bill.billType,
+      customerName: bill.customerName,
       billAmount: bill.total,
       clientPaid: bill.paid,
       pending: bill.pending,
@@ -215,12 +293,24 @@ export function buildCustomerBillLedger(
   const rawPending = bills.reduce((s, b) => s + b.pending, 0);
   const adjusted = applyCreditAgainstPending(rawPending, creditBalance);
 
+  const totalAppliedToBills = Math.max(0, totalBillAmount - adjusted.totalPending);
+
+  // Bills with cashPaid already include overpayment — don't add stored credit again
+  const totalCashPaid =
+    totalClientPaid > totalAppliedToBills
+      ? totalClientPaid
+      : totalAppliedToBills + adjusted.creditBalance;
+
+  const displayAdvance = Math.max(0, totalCashPaid - totalAppliedToBills);
+
   return {
     totalBillAmount,
     totalClientPaid,
+    totalCashPaid,
+    totalAppliedToBills,
     totalPending: adjusted.totalPending,
     totalOrders: bills.length,
-    creditBalance: adjusted.creditBalance,
+    creditBalance: displayAdvance,
     creditAppliedToPending: adjusted.creditAppliedToPending,
     isFullyPaid: totalBillAmount > 0 && adjusted.totalPending <= 0,
     hasPending: adjusted.totalPending > 0,
@@ -233,9 +323,12 @@ export function getCustomerPaymentStats(
   creditBalance = 0
 ) {
   const ledger = buildCustomerBillLedger(bills, creditBalance);
+
   return {
     totalPurchase: ledger.totalBillAmount,
-    totalAdvance: ledger.totalClientPaid,
+    totalAdvance: ledger.totalAppliedToBills,
+    totalAppliedToBills: ledger.totalAppliedToBills,
+    totalCashPaid: ledger.totalCashPaid,
     totalPending: ledger.totalPending,
     creditBalance: ledger.creditBalance,
     creditAppliedToPending: ledger.creditAppliedToPending ?? 0,

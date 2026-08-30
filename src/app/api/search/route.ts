@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
           { customerName: { $regex: sanitized, $options: "i" } },
         ],
       })
+        .select("dispatchId finalBillId customerName total billStatus")
         .limit(5)
         .lean(),
     ]);

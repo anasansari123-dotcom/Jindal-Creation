@@ -10,11 +10,13 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { BillExportActions } from "@/components/bill-export-actions";
 import { dispatchToBillData } from "@/lib/bill-export";
+import { getBillPaymentDisplay } from "@/lib/bill-payment-display";
 import { DEFAULT_WHATSAPP_NUMBER } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Plus, Eye, FileText, CheckCircle, Truck, CalendarClock } from "lucide-react";
 import { advanceDueLabel, getAdvanceDueStatus, isAdvanceOrder } from "@/lib/advance-order";
 import type { BillData } from "@/components/bill-preview";
+import { getDisplayBillId } from "@/lib/bill-display";
 
 interface DispatchRecord {
   _id: string;
@@ -35,6 +37,9 @@ interface DispatchRecord {
   total: number;
   advance: number;
   pending: number;
+  cashPaid?: number;
+  creditAdded?: number;
+  creditApplied?: number;
   paymentStatus: string;
   paymentMode?: string;
   inventoryDeducted: boolean;
@@ -175,9 +180,15 @@ export default function DispatchPage() {
                       return (
                       <tr key={d._id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="py-3">
-                          <div className="font-medium text-gold">{d.dispatchId}</div>
-                          {d.finalBillId && (
-                            <div className="text-xs text-gray-400">Final: {d.finalBillId}</div>
+                          <div className="font-medium text-gold">
+                            {getDisplayBillId({
+                              billStatus: d.billStatus,
+                              finalBillId: d.finalBillId,
+                              dispatchId: d.dispatchId,
+                            })}
+                          </div>
+                          {d.billStatus === "FINAL" && d.finalBillId && d.dispatchId !== d.finalBillId && (
+                            <div className="text-xs text-gray-400">Dispatch: {d.dispatchId}</div>
                           )}
                         </td>
                         <td className="py-3">
@@ -200,9 +211,25 @@ export default function DispatchPage() {
                         </td>
                         <td className="py-3">
                           <div>{formatCurrency(d.total)}</div>
-                          {d.advance > 0 && (
-                            <div className="text-xs text-green-700">Paid: {formatCurrency(d.advance)}</div>
-                          )}
+                          {(() => {
+                            const p = getBillPaymentDisplay(d);
+                            if (p.hasPending) {
+                              return (
+                                <div className="text-xs text-red-600">Pending: {formatCurrency(p.pending)}</div>
+                              );
+                            }
+                            if (p.hasAdvance) {
+                              return (
+                                <div className="text-xs text-gold">Advance: {formatCurrency(p.creditAdded)}</div>
+                              );
+                            }
+                            if (p.cashPaid > 0) {
+                              return (
+                                <div className="text-xs text-green-700">Paid: {formatCurrency(p.cashPaid)}</div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </td>
                         <td className="py-3"><StatusBadge status={d.paymentStatus} /></td>
                         <td className="py-3">

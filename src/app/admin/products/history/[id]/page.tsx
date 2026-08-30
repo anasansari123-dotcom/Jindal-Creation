@@ -32,8 +32,10 @@ interface HistoryEntry {
   unitPrice: number;
   piecePrice: number;
   piecesPerBox: number;
-  sellMode: "box" | "piece" | "mixed";
+  sellMode: "box" | "piece" | "mixed" | "kg";
   total: number;
+  soldWithoutPurchase?: boolean;
+  shortfallQty?: number;
 }
 
 interface ProductInfo {
@@ -43,6 +45,9 @@ interface ProductInfo {
   category: string;
   piecesPerBox: number;
   currentStock: number;
+  stockDisplay?: string;
+  sellingUnit?: string;
+  unit?: string;
 }
 
 export default function ProductHistoryDetailPage() {
@@ -57,6 +62,9 @@ export default function ProductHistoryDetailPage() {
     totalLoosePieces: 0,
     totalAmount: 0,
     uniqueCustomers: 0,
+    totalSoldWithoutPurchase: 0,
+    binaPurchaseSales: 0,
+    isNegativeStock: false,
   });
   const [loading, setLoading] = useState(true);
 
@@ -83,8 +91,9 @@ export default function ProductHistoryDetailPage() {
     return "bg-gray-100 text-gray-700";
   };
 
-  const stockBoxes = Math.floor(product.currentStock / (product.piecesPerBox || 1));
-  const stockLoose = product.currentStock % (product.piecesPerBox || 1);
+  const stockBoxes = Math.floor(Math.abs(product.currentStock) / (product.piecesPerBox || 1));
+  const stockLoose = Math.abs(product.currentStock) % (product.piecesPerBox || 1);
+  const isKg = product.sellingUnit === "kg" || product.unit?.toLowerCase() === "kg";
 
   return (
     <div className="space-y-6">
@@ -100,14 +109,27 @@ export default function ProductHistoryDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           ["Box Sold", summary.totalBoxes, "text-navy"],
-          ["Loose Pcs Sold", summary.totalLoosePieces ?? 0, "text-navy"],
-          ["Total Pieces", summary.totalPieces, "text-navy"],
+          ["Loose Pcs Sold", summary.totalLoosePieces ?? summary.totalPieces ?? 0, "text-navy"],
           ["Customers", summary.uniqueCustomers, "text-gold"],
           ["Sales Amount", formatCurrency(summary.totalAmount), "text-green-700"],
-          ["Current Stock", `${stockBoxes} Box · ${stockLoose} Pc`, "text-navy"],
+          [
+            "Current Stock",
+            product.stockDisplay ??
+              (isKg
+                ? `${product.currentStock} Kg`
+                : `${stockBoxes} Box · ${stockLoose} Pc`),
+            summary.isNegativeStock ? "text-red-600" : "text-navy",
+          ],
+          [
+            "Bina Purchase",
+            (summary.totalSoldWithoutPurchase || 0) > 0
+              ? `(-) ${summary.totalSoldWithoutPurchase}${isKg ? " kg" : " pcs"}`
+              : "—",
+            (summary.totalSoldWithoutPurchase || 0) > 0 ? "text-red-600" : "text-gray-400",
+          ],
         ].map(([label, value, color]) => (
           <Card key={label as string}>
             <CardContent className="p-4 text-center">
@@ -151,6 +173,7 @@ export default function ProductHistoryDetailPage() {
                     <th className="p-3 font-medium">Type</th>
                     <th className="p-3 font-medium text-center">Unit</th>
                     <th className="p-3 font-medium text-right">Qty</th>
+                    <th className="p-3 font-medium text-right">Bina Purchase</th>
                     <th className="p-3 font-medium text-right">Rate</th>
                     <th className="p-3 font-medium">Calculation</th>
                     <th className="p-3 font-medium text-right">Amount</th>
@@ -210,7 +233,22 @@ export default function ProductHistoryDetailPage() {
                           </span>
                         </td>
                         <td className="p-3 text-right font-medium whitespace-nowrap">
-                          {formatQtyDisplay(pricing.fullBoxes, pricing.loosePieces)}
+                          {formatQtyDisplay(
+                            pricing.fullBoxes,
+                            pricing.loosePieces,
+                            pricing.sellMode,
+                            pricing.kgQty
+                          )}
+                        </td>
+                        <td className="p-3 text-right whitespace-nowrap">
+                          {row.soldWithoutPurchase && (row.shortfallQty || 0) > 0 ? (
+                            <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">
+                              (-) {row.shortfallQty}
+                              {pricing.sellMode === "kg" ? " kg" : " pcs"}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
                         </td>
                         <td className="p-3 text-right text-xs font-medium whitespace-nowrap">
                           {formatLineRate(pricing)}
@@ -230,6 +268,11 @@ export default function ProductHistoryDetailPage() {
                     <td className="p-3" colSpan={5}>Total</td>
                     <td className="p-3 text-right whitespace-nowrap">
                       {summary.totalBoxes} Box · {summary.totalLoosePieces ?? 0} Pc
+                    </td>
+                    <td className="p-3 text-right text-red-600 whitespace-nowrap">
+                      {(summary.totalSoldWithoutPurchase || 0) > 0
+                        ? `(-) ${summary.totalSoldWithoutPurchase}${isKg ? " kg" : " pcs"}`
+                        : "—"}
                     </td>
                     <td className="p-3"></td>
                     <td className="p-3"></td>

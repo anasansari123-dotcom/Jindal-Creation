@@ -36,10 +36,15 @@ export function Toaster() {
   }, []);
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div
+      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2"
+      aria-live="polite"
+      aria-relevant="additions"
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
+          role={t.type === "error" ? "alert" : "status"}
           className={cn(
             "flex items-center gap-3 rounded-lg px-4 py-3 shadow-lg min-w-[280px] max-w-md",
             {
@@ -51,10 +56,12 @@ export function Toaster() {
         >
           <span className="flex-1 text-sm">{t.message}</span>
           <button
+            type="button"
             onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
             className="opacity-70 hover:opacity-100"
+            aria-label="Dismiss notification"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       ))}

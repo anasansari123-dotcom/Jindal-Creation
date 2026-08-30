@@ -1,4 +1,9 @@
 import { dispatchOrderStatus } from "@/lib/dispatch-orders";
+import { boxesSoldFromLine, loosePiecesSoldFromLine } from "@/lib/bill-pricing";
+import {
+  getBillPaymentDisplay,
+  type BillPaymentFields,
+} from "@/lib/bill-payment-display";
 
 export interface DispatchSalesDoc {
   _id: { toString(): string };
@@ -10,6 +15,9 @@ export interface DispatchSalesDoc {
   total: number;
   advance: number;
   pending: number;
+  cashPaid?: number;
+  creditAdded?: number;
+  creditApplied?: number;
   paymentStatus: string;
   dispatchDate: Date | string;
   salespersonName: string;
@@ -18,25 +26,55 @@ export interface DispatchSalesDoc {
     productName?: string;
     pieces?: number;
     boxes?: number;
+    fullBoxes?: number;
+    loosePieces?: number;
+    piecesPerBox?: number;
+    unitPrice?: number;
+    sellMode?: "box" | "piece" | "mixed" | "kg";
     quantity?: number;
     total?: number;
   }>;
 }
 
+export function dispatchDocToPaymentFields(
+  d: DispatchSalesDoc
+): BillPaymentFields {
+  return {
+    total: d.total,
+    advance: d.advance,
+    pending: d.pending,
+    cashPaid: d.cashPaid,
+    creditAdded: d.creditAdded,
+    creditApplied: d.creditApplied,
+  };
+}
+
 export function summarizeDispatchSales(dispatches: DispatchSalesDoc[]) {
+  let totalCashPaid = 0;
+  let totalPending = 0;
+  let totalAdvanceSaved = 0;
+
+  for (const d of dispatches) {
+    const payment = getBillPaymentDisplay(dispatchDocToPaymentFields(d));
+    totalCashPaid += payment.cashPaid;
+    totalPending += payment.pending;
+    totalAdvanceSaved += payment.creditAdded;
+  }
+
   return {
     totalSales: dispatches.reduce((s, d) => s + d.total, 0),
     totalOrders: dispatches.length,
     totalPieces: dispatches.reduce(
-      (s, d) => s + d.items.reduce((is, i) => is + (i.pieces || 0), 0),
+      (s, d) => s + d.items.reduce((is, i) => is + loosePiecesSoldFromLine(i), 0),
       0
     ),
     totalBoxes: dispatches.reduce(
-      (s, d) => s + d.items.reduce((is, i) => is + (i.boxes || 0), 0),
+      (s, d) => s + d.items.reduce((is, i) => is + boxesSoldFromLine(i), 0),
       0
     ),
-    totalAdvance: dispatches.reduce((s, d) => s + d.advance, 0),
-    totalPending: dispatches.reduce((s, d) => s + d.pending, 0),
+    totalCashPaid,
+    totalPending,
+    totalAdvanceSaved,
   };
 }
 
@@ -52,6 +90,8 @@ export function buildSalesChartData(dispatches: DispatchSalesDoc[]) {
 }
 
 export function dispatchToSalesRow(d: DispatchSalesDoc) {
+  const payment = getBillPaymentDisplay(dispatchDocToPaymentFields(d));
+
   return {
     _id: d._id.toString(),
     orderId:
@@ -59,8 +99,10 @@ export function dispatchToSalesRow(d: DispatchSalesDoc) {
     dispatchId: d.dispatchId,
     customerName: d.customerName,
     total: d.total,
-    advance: d.advance,
-    pending: d.pending,
+    cashPaid: payment.cashPaid,
+    advance: payment.billPaid,
+    pending: payment.pending,
+    advanceSaved: payment.creditAdded,
     paymentStatus: d.paymentStatus,
     status: dispatchOrderStatus(d.billStatus),
     fulfillmentLabel:

@@ -34,7 +34,8 @@ export function formatDateTime(date: Date | string): string {
 export function getStockStatus(
   currentStock: number,
   minimumStock: number
-): "In Stock" | "Low Stock" | "Out of Stock" {
+): "In Stock" | "Low Stock" | "Out of Stock" | "Negative Stock" {
+  if (currentStock < 0) return "Negative Stock";
   if (currentStock <= 0) return "Out of Stock";
   if (currentStock <= minimumStock) return "Low Stock";
   return "In Stock";

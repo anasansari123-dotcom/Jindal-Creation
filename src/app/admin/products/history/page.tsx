@@ -15,12 +15,17 @@ interface ProductSummary {
   category: string;
   piecesPerBox: number;
   currentStock: number;
+  stockDisplay?: string;
+  sellingUnit?: string;
   totalEntries: number;
   totalPieces: number;
   totalBoxes: number;
   totalLoosePieces?: number;
   totalAmount: number;
   uniqueCustomers: number;
+  totalSoldWithoutPurchase?: number;
+  binaPurchaseSales?: number;
+  isNegativeStock?: boolean;
 }
 
 export default function ProductHistoryListPage() {
@@ -76,7 +81,8 @@ export default function ProductHistoryListPage() {
                     <th className="pb-3 font-medium">Category</th>
                     <th className="pb-3 font-medium text-right">Total Boxes Sold</th>
                     <th className="pb-3 font-medium text-right">Loose Pcs Sold</th>
-                    <th className="pb-3 font-medium text-right">Total Pieces</th>
+                    <th className="pb-3 font-medium text-right">Current Stock</th>
+                    <th className="pb-3 font-medium text-right">Bina Purchase</th>
                     <th className="pb-3 font-medium text-right">Customers</th>
                     <th className="pb-3 font-medium text-right">Sales Amount</th>
                     <th className="pb-3 font-medium"></th>
@@ -96,8 +102,25 @@ export default function ProductHistoryListPage() {
                       </td>
                       <td className="py-3 text-gray-500">{p.category}</td>
                       <td className="py-3 text-right font-medium">{p.totalBoxes}</td>
-                      <td className="py-3 text-right">{p.totalLoosePieces ?? 0}</td>
-                      <td className="py-3 text-right">{p.totalPieces}</td>
+                      <td className="py-3 text-right">{p.totalLoosePieces ?? p.totalPieces ?? 0}</td>
+                      <td
+                        className={`py-3 text-right font-medium ${
+                          p.isNegativeStock ? "text-red-600" : "text-navy"
+                        }`}
+                      >
+                        {p.stockDisplay ??
+                          (p.currentStock < 0 ? `(-) ${Math.abs(p.currentStock)}` : p.currentStock)}
+                      </td>
+                      <td className="py-3 text-right">
+                        {(p.totalSoldWithoutPurchase || 0) > 0 ? (
+                          <span className="font-bold text-red-600">
+                            (-) {p.totalSoldWithoutPurchase}
+                            {p.sellingUnit === "kg" ? " kg" : " pcs"}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="py-3 text-right">{p.uniqueCustomers}</td>
                       <td className="py-3 text-right text-green-700">
                         {formatCurrency(p.totalAmount)}
@@ -120,7 +143,8 @@ export default function ProductHistoryListPage() {
         <Package className="h-5 w-5 text-gold shrink-0 mt-0.5" />
         <p>
           History Dispatch Bills, Final Bills, Orders aur Confirm Bills se collect hoti hai.
-          Duplicate entries avoid ki jaati hain — ek sale sirf ek baar count hoti hai.
+          Bina purchase sell par stock <strong className="text-red-600">(-) minus</strong> me dikhega —
+          Current Stock aur Bina Purchase columns check karein.
         </p>
       </div>
     </div>
