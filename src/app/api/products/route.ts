@@ -5,7 +5,7 @@ import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { productSchema } from "@/lib/validations";
 import { logActivity } from "@/lib/activity";
 import { sanitizeSearchQuery, getStockStatus } from "@/lib/utils";
-import { sortProductsForCatalog, formatProductOptionLabel, PRODUCT_NAME_DUPLICATE_MESSAGE, productNameDuplicateQuery } from "@/lib/product-display";
+import { sortProductsForCatalog, formatProductOptionLabel } from "@/lib/product-display";
 import { getStockSplit, formatProductCatalogRates } from "@/lib/bill-pricing";
 import { formatKgQty, isKgProduct, stockInputToStorage } from "@/lib/product-units";
 
@@ -86,12 +86,6 @@ export async function POST(request: NextRequest) {
     }
 
     await connectDB();
-
-    const name = parsed.data.name;
-    const duplicate = await Product.findOne(productNameDuplicateQuery(name));
-    if (duplicate) {
-      return apiError(PRODUCT_NAME_DUPLICATE_MESSAGE, 400);
-    }
 
     const productId = parsed.data.productId.trim();
 

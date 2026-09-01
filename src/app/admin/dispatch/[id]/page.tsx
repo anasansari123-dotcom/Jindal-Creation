@@ -301,7 +301,7 @@ export default function DispatchBillDetailPage() {
         className={
           showPreview
             ? "overflow-x-auto border rounded-xl"
-            : "fixed left-0 top-0 opacity-0 pointer-events-none -z-10 overflow-hidden"
+            : "fixed -left-[10000px] top-0 w-[794px] pointer-events-none -z-10"
         }
         aria-hidden={!showPreview}
       >

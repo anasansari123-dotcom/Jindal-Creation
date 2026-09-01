@@ -1,36 +1,83 @@
 import type { Metadata } from "next";
-import { BRAND, LOCAL_BUSINESS } from "@/lib/constants";
+import { BRAND, LOCAL_BUSINESS, SEO_ALTERNATE_NAMES } from "@/lib/constants";
 
 export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://jindalcreation.com";
 
+/** Target SERP keywords — Jindal Creation, MZN, Muzaffarnagar, near me */
 export const SEO_KEYWORDS = [
   "Jindal Creation",
+  "Jindal MZN",
+  "Jindal Muzaffarnagar",
+  "Jindal Creation MZN",
+  "Jindal Creation Muzaffarnagar",
+  "Jindal Creation near me",
+  "Jindal near me",
+  "Jindal Creation near me Muzaffarnagar",
+  "Jindal MZN near me",
+  "Jindal PVC panels Muzaffarnagar",
+  "Jindal home decor Muzaffarnagar",
   "PVC panels Muzaffarnagar",
+  "PVC panels near me",
   "PVC stock Muzaffarnagar",
   "home decor Muzaffarnagar",
+  "home decor near me Muzaffarnagar",
   "interior products Muzaffarnagar",
   "wall panels Muzaffarnagar",
   "PVC panels Uttar Pradesh",
   "wholesale PVC panels Muzaffarnagar",
   "decor items Muzaffarnagar",
-  "Jindal Creation Muzaffarnagar",
   "PVC panel dealer Muzaffarnagar",
+  "PVC panel shop near me",
   "home decoration shop Muzaffarnagar",
+  "Jindal Creation PVC",
+  "Jindal Creation home decor",
+  "Jindal Creation UP",
 ] as const;
 
+export const SEO_FAQ = [
+  {
+    question: "Where is Jindal Creation near me in Muzaffarnagar?",
+    answer: `Jindal Creation (Jindal MZN) Muzaffarnagar, Uttar Pradesh ${LOCAL_BUSINESS.address.pincode} me located hai. PVC panels, home decor aur interior products ke liye aap online stock check kar sakte hain ya ${LOCAL_BUSINESS.phoneDisplay} par call / WhatsApp kar sakte hain.`,
+  },
+  {
+    question: "What does Jindal Creation Muzaffarnagar sell?",
+    answer:
+      "Jindal Creation MZN PVC panels, PVC stock, home decor, interior products aur wholesale supply karta hai — Muzaffarnagar, Saharanpur, Meerut aur nearby areas ke liye.",
+  },
+  {
+    question: "How to order from Jindal Creation MZN?",
+    answer:
+      "Website par /stock page se product search karein, Order button se quantity add karein, aur WhatsApp par apna order bhejein. Ya seedha WhatsApp enquiry karein.",
+  },
+  {
+    question: "Is Jindal Muzaffarnagar same as Jindal Creation?",
+    answer:
+      "Haan — Jindal MZN, Jindal Muzaffarnagar aur Jindal Creation MZN sab Jindal Creation brand ke naam hain, Muzaffarnagar me PVC panels aur home decor supplier.",
+  },
+  {
+    question: "Does Jindal Creation deliver outside Muzaffarnagar?",
+    answer: `Jindal Creation ${LOCAL_BUSINESS.serviceAreas.join(", ")} aur nearby areas me supply karta hai. Bulk order ke liye WhatsApp par confirm karein.`,
+  },
+] as const;
+
+const DEFAULT_TITLE =
+  "Jindal Creation | Jindal MZN — PVC Panels & Home Decor Muzaffarnagar Near Me";
+
+const DEFAULT_DESCRIPTION = `Jindal Creation Muzaffarnagar (Jindal MZN) — PVC panels, PVC stock, home decor & interior products near you. Search "Jindal Creation near me" — stock check, WhatsApp order. ${BRAND.tagline}. Call ${LOCAL_BUSINESS.phoneDisplay}.`;
+
 export function siteMetadata(overrides?: Partial<Metadata>): Metadata {
-  const title = `${BRAND.name} — PVC Panels & Home Decor in Muzaffarnagar`;
-  const description = `${BRAND.name} Muzaffarnagar me PVC panels, PVC stock, home decor aur interior products. Stock check karein, WhatsApp par order karein. ${BRAND.tagline}. Call ${LOCAL_BUSINESS.phoneDisplay}.`;
+  const googleVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION;
 
   return {
     metadataBase: new URL(SITE_URL),
     title: {
-      default: title,
-      template: `%s | ${BRAND.name} Muzaffarnagar`,
+      default: DEFAULT_TITLE,
+      template: `%s | Jindal Creation MZN`,
     },
-    description,
+    description: DEFAULT_DESCRIPTION,
     keywords: [...SEO_KEYWORDS],
+    applicationName: BRAND.name,
     authors: [{ name: BRAND.name, url: SITE_URL }],
     creator: BRAND.name,
     publisher: BRAND.name,
@@ -52,22 +99,22 @@ export function siteMetadata(overrides?: Partial<Metadata>): Metadata {
       type: "website",
       locale: "en_IN",
       url: SITE_URL,
-      siteName: BRAND.name,
-      title,
-      description,
+      siteName: `${BRAND.name} — Jindal MZN Muzaffarnagar`,
+      title: DEFAULT_TITLE,
+      description: DEFAULT_DESCRIPTION,
       images: [
         {
           url: "/logo.png",
           width: 512,
           height: 512,
-          alt: `${BRAND.name} — PVC Panels Muzaffarnagar`,
+          alt: "Jindal Creation Muzaffarnagar — PVC Panels & Home Decor",
         },
       ],
     },
     twitter: {
       card: "summary_large_image",
-      title,
-      description,
+      title: DEFAULT_TITLE,
+      description: DEFAULT_DESCRIPTION,
       images: ["/logo.png"],
     },
     other: {
@@ -76,23 +123,30 @@ export function siteMetadata(overrides?: Partial<Metadata>): Metadata {
       "geo.position": `${LOCAL_BUSINESS.geo.lat};${LOCAL_BUSINESS.geo.lng}`,
       ICBM: `${LOCAL_BUSINESS.geo.lat}, ${LOCAL_BUSINESS.geo.lng}`,
     },
+    ...(googleVerification
+      ? { verification: { google: googleVerification } }
+      : {}),
     ...overrides,
   };
 }
 
 export function localBusinessJsonLd() {
+  const mapsUrl = LOCAL_BUSINESS.sameAs[0];
+
   return {
     "@context": "https://schema.org",
     "@type": "HomeAndConstructionBusiness",
     "@id": `${SITE_URL}/#localbusiness`,
     name: BRAND.name,
-    description: `${BRAND.name} — ${BRAND.tagline} in Muzaffarnagar, Uttar Pradesh. PVC panels, home decor & interior products.`,
+    alternateName: [...SEO_ALTERNATE_NAMES],
+    description: `${BRAND.name} (Jindal MZN) — PVC panels, home decor & interior products in Muzaffarnagar, UP. Search Jindal Creation near me.`,
     url: SITE_URL,
     telephone: LOCAL_BUSINESS.phoneDisplay,
     email: LOCAL_BUSINESS.email,
     image: `${SITE_URL}/logo.png`,
     logo: `${SITE_URL}/logo.png`,
     priceRange: "₹₹",
+    keywords: SEO_KEYWORDS.slice(0, 12).join(", "),
     address: {
       "@type": "PostalAddress",
       streetAddress: LOCAL_BUSINESS.address.street,
@@ -106,6 +160,7 @@ export function localBusinessJsonLd() {
       latitude: LOCAL_BUSINESS.geo.lat,
       longitude: LOCAL_BUSINESS.geo.lng,
     },
+    hasMap: mapsUrl,
     areaServed: LOCAL_BUSINESS.serviceAreas.map((area) => ({
       "@type": "City",
       name: area,
@@ -121,13 +176,13 @@ export function localBusinessJsonLd() {
     sameAs: LOCAL_BUSINESS.sameAs,
     hasOfferCatalog: {
       "@type": "OfferCatalog",
-      name: "PVC Panels & Home Decor",
+      name: "PVC Panels & Home Decor — Jindal Creation MZN",
       itemListElement: LOCAL_BUSINESS.services.map((service, index) => ({
         "@type": "Offer",
         position: index + 1,
         itemOffered: {
           "@type": "Service",
-          name: service,
+          name: `${service} — Jindal Creation Muzaffarnagar`,
           areaServed: "Muzaffarnagar, Uttar Pradesh",
         },
       })),
@@ -141,8 +196,9 @@ export function websiteJsonLd() {
     "@type": "WebSite",
     "@id": `${SITE_URL}/#website`,
     url: SITE_URL,
-    name: BRAND.name,
-    description: siteMetadata().description as string,
+    name: `${BRAND.name} — Jindal MZN`,
+    alternateName: [...SEO_ALTERNATE_NAMES],
+    description: DEFAULT_DESCRIPTION,
     publisher: { "@id": `${SITE_URL}/#localbusiness` },
     inLanguage: "en-IN",
     potentialAction: {
@@ -150,5 +206,36 @@ export function websiteJsonLd() {
       target: `${SITE_URL}/stock?search={search_term_string}`,
       "query-input": "required name=search_term_string",
     },
+  };
+}
+
+export function faqPageJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "@id": `${SITE_URL}/#faq`,
+    mainEntity: SEO_FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: item.answer,
+      },
+    })),
+  };
+}
+
+export function stockPageJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": `${SITE_URL}/stock#webpage`,
+    url: `${SITE_URL}/stock`,
+    name: "PVC Panel Stock Check — Jindal Creation MZN Muzaffarnagar",
+    description:
+      "Jindal Creation Muzaffarnagar live PVC panel & home decor stock. Jindal MZN product search, WhatsApp order.",
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    about: { "@id": `${SITE_URL}/#localbusiness` },
+    inLanguage: "en-IN",
   };
 }

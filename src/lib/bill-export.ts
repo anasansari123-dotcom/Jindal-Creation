@@ -5,6 +5,8 @@ import { jsPDF } from "jspdf";
 import { enrichDispatchBill } from "@/lib/bill-pricing";
 import { getBillPaymentDisplay, formatBillPaymentFormula } from "@/lib/bill-payment-display";
 
+const BILL_EXPORT_WIDTH_PX = 794;
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -31,21 +33,39 @@ async function waitForImages(element: HTMLElement) {
   );
 }
 
+function prepareBillClone(element: HTMLElement) {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.style.width = `${BILL_EXPORT_WIDTH_PX}px`;
+  clone.style.maxWidth = `${BILL_EXPORT_WIDTH_PX}px`;
+  clone.style.minWidth = `${BILL_EXPORT_WIDTH_PX}px`;
+  clone.style.boxSizing = "border-box";
+  clone.style.margin = "0";
+  clone.style.position = "relative";
+  clone.style.left = "0";
+  clone.style.top = "0";
+  clone.style.opacity = "1";
+  clone.style.visibility = "visible";
+  clone.style.backgroundColor = "#ffffff";
+  return clone;
+}
+
 /** Capture in isolated iframe — avoids Tailwind v4 lab() stylesheet parse errors */
 async function captureBillCanvas(element: HTMLElement) {
   await waitForImages(element);
 
+  const clone = prepareBillClone(element);
+  const captureHeight = Math.max(clone.scrollHeight, element.scrollHeight, 400);
+
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   iframe.style.position = "fixed";
-  iframe.style.left = "0";
+  iframe.style.left = "-10000px";
   iframe.style.top = "0";
-  iframe.style.width = `${element.offsetWidth || 794}px`;
-  iframe.style.height = `${Math.max(element.scrollHeight, 600)}px`;
+  iframe.style.width = `${BILL_EXPORT_WIDTH_PX}px`;
+  iframe.style.height = `${captureHeight + 40}px`;
   iframe.style.border = "none";
-  iframe.style.opacity = "0";
+  iframe.style.visibility = "hidden";
   iframe.style.pointerEvents = "none";
-  iframe.style.zIndex = "-9999";
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument;
@@ -55,13 +75,19 @@ async function captureBillCanvas(element: HTMLElement) {
   }
 
   doc.open();
-  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#fff;"></body></html>`);
+  doc.write(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 0; background: #fff; width: ${BILL_EXPORT_WIDTH_PX}px; }
+      table { border-collapse: collapse; }
+    </style></head><body></body></html>`
+  );
   doc.close();
 
-  const clone = element.cloneNode(true) as HTMLElement;
   doc.body.appendChild(clone);
-
   await waitForImages(clone);
+
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
 
   try {
     const canvas = await html2canvas(clone, {
@@ -70,9 +96,9 @@ async function captureBillCanvas(element: HTMLElement) {
       allowTaint: true,
       backgroundColor: "#ffffff",
       logging: false,
-      width: clone.offsetWidth || element.offsetWidth || 794,
-      height: clone.scrollHeight || element.scrollHeight,
-      windowWidth: clone.offsetWidth || 794,
+      width: BILL_EXPORT_WIDTH_PX,
+      height: clone.scrollHeight,
+      windowWidth: BILL_EXPORT_WIDTH_PX,
       windowHeight: clone.scrollHeight,
     });
     return canvas;
@@ -122,23 +148,28 @@ export async function shareBillImageWhatsApp(
 
 export async function billElementToPDF(element: HTMLElement, filename: string) {
   const canvas = await captureBillCanvas(element);
-  const imgData = canvas.toDataURL("image/png");
+  const imgData = canvas.toDataURL("image/png", 1.0);
   const pdf = new jsPDF("p", "mm", "a4");
+
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const imgHeight = (canvas.height * pageWidth) / canvas.width;
+  const marginX = 8;
+  const marginY = 10;
+  const contentWidth = pageWidth - marginX * 2;
+  const contentHeight = pageHeight - marginY * 2;
+  const imgHeight = (canvas.height * contentWidth) / canvas.width;
 
   let heightLeft = imgHeight;
-  let position = 0;
+  let position = marginY;
 
-  pdf.addImage(imgData, "PNG", 0, position, pageWidth, imgHeight);
-  heightLeft -= pageHeight;
+  pdf.addImage(imgData, "PNG", marginX, position, contentWidth, imgHeight);
+  heightLeft -= contentHeight;
 
   while (heightLeft > 0) {
-    position -= pageHeight;
     pdf.addPage();
-    pdf.addImage(imgData, "PNG", 0, position, pageWidth, imgHeight);
-    heightLeft -= pageHeight;
+    position = marginY - (imgHeight - heightLeft);
+    pdf.addImage(imgData, "PNG", marginX, position, contentWidth, imgHeight);
+    heightLeft -= contentHeight;
   }
 
   pdf.save(filename);

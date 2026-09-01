@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
+import { SeoFaqSection } from "@/components/seo-faq-section";
 import { BRAND, LOCAL_BUSINESS, DEFAULT_WHATSAPP_NUMBER, DEFAULT_WHATSAPP_DISPLAY } from "@/lib/constants";
 import { generateWhatsAppUrl } from "@/lib/utils";
 import { Package, LogIn, MapPin, Phone, MessageCircle, CheckCircle } from "lucide-react";
@@ -45,13 +46,16 @@ export function LandingPage() {
               <Logo size="lg" showText={false} />
             </div>
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-serif font-bold text-white leading-tight">
-              {BRAND.name} — PVC Panels &amp; Home Decor in{" "}
-              <span className="text-gold">Muzaffarnagar</span>
+              {BRAND.name} — Jindal MZN PVC Panels &amp; Home Decor{" "}
+              <span className="text-gold">Muzaffarnagar Near Me</span>
             </h1>
-            <p className="text-gold text-base sm:text-lg tracking-wide">{BRAND.tagline}</p>
-            <p className="text-white/70 text-sm sm:text-base max-w-xl mx-auto">
-              {BRAND.slogan}. Muzaffarnagar aur nearby areas ke liye PVC stock, wall panels aur
-              interior products — stock check karein aur WhatsApp par order karein.
+            <p className="text-gold text-base sm:text-lg tracking-wide">
+              Jindal Creation MZN · {BRAND.tagline}
+            </p>
+            <p className="text-white/70 text-sm sm:text-base max-w-2xl mx-auto">
+              <strong className="text-white/90">Jindal Muzaffarnagar</strong> me PVC stock, wall panels
+              aur interior products — &quot;Jindal Creation near me&quot; search par trusted supplier.
+              {BRAND.slogan}. Online stock check &amp; WhatsApp order.
             </p>
           </div>
 
@@ -78,12 +82,13 @@ export function LandingPage() {
             aria-label="About Jindal Creation Muzaffarnagar"
           >
             <h2 className="text-xl sm:text-2xl font-serif font-bold text-white text-center">
-              Muzaffarnagar ka PVC Panels &amp; Home Decor Supplier
+              Jindal Creation MZN — Muzaffarnagar PVC Panels &amp; Home Decor
             </h2>
             <p className="text-white/75 text-sm sm:text-base leading-relaxed">
-              <strong className="text-white">{BRAND.name}</strong> Muzaffarnagar, Uttar Pradesh me
-              PVC panels, PVC stock, home decor aur interior products supply karta hai. Dealer aur
-              retail customers ke liye quality products, stock availability aur fast WhatsApp support.
+              <strong className="text-white">{BRAND.name}</strong> (Jindal MZN, Jindal Muzaffarnagar)
+              Uttar Pradesh me PVC panels, PVC stock, home decor aur interior products supply karta hai.
+              &quot;Jindal Creation near me&quot; ya &quot;Jindal MZN near me&quot; search karte hain to aap sahi
+              jagah par hain — dealer aur retail ke liye quality products, live stock aur WhatsApp support.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -125,6 +130,8 @@ export function LandingPage() {
             </div>
           </section>
 
+          <SeoFaqSection variant="dark" />
+
           <div className="pt-2">
             <Link
               href="/login"
@@ -142,7 +149,8 @@ export function LandingPage() {
           Muzaffarnagar — PVC Panels | Home Decor
         </p>
         <p className="text-white/30">
-          PVC panels Muzaffarnagar · Home decor Muzaffarnagar · Interior products UP
+          Jindal Creation · Jindal MZN · Jindal Muzaffarnagar · Jindal Creation MZN · PVC panels near
+          me · Home decor Muzaffarnagar
         </p>
       </footer>
     </div>

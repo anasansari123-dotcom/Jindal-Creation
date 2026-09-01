@@ -23,8 +23,9 @@ export interface IProduct extends Document {
 
 const ProductSchema = new Schema<IProduct>(
   {
-    /** Human-readable product number — may repeat; product name is the unique key */
+    /** Human-readable product number — may repeat across products */
     productId: { type: String, required: true, trim: true },
+    /** Product name — may repeat; use category + number to tell items apart */
     name: { type: String, required: true, trim: true },
     category: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
@@ -45,7 +46,7 @@ const ProductSchema = new Schema<IProduct>(
   { timestamps: true }
 );
 
-ProductSchema.index({ name: 1 }, { unique: true, collation: { locale: "en", strength: 2 } });
+ProductSchema.index({ name: 1 });
 ProductSchema.index({ productId: 1 });
 ProductSchema.index({ name: "text", productId: "text", category: "text" });
 ProductSchema.index({ category: 1 });

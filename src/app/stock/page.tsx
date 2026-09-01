@@ -31,6 +31,7 @@ import {
 import { BRAND, DEFAULT_WHATSAPP_NUMBER, DEFAULT_WHATSAPP_DISPLAY } from "@/lib/constants";
 import { generateWhatsAppUrl } from "@/lib/utils";
 import { groupProductsByCategory, formatProductDisplay } from "@/lib/product-display";
+import { SeoFaqSection } from "@/components/seo-faq-section";
 
 interface StockProduct {
   id: string;
@@ -294,10 +295,10 @@ export default function StockPage() {
           </div>
           <div className="mt-5 sm:mt-6">
             <h1 className="text-xl sm:text-2xl font-serif font-bold leading-snug">
-              PVC Panel Stock — Muzaffarnagar
+              Jindal Creation MZN — PVC Panel Stock Muzaffarnagar
             </h1>
             <p className="text-gold text-xs sm:text-sm mt-1">
-              {BRAND.name} · Search by name or product ID · WhatsApp order
+              {BRAND.name} · Jindal Muzaffarnagar · Search by name or product ID · WhatsApp order
             </p>
           </div>
         </div>
@@ -484,7 +485,16 @@ export default function StockPage() {
             </p>
           </div>
         )}
+
+        <SeoFaqSection variant="light" />
       </main>
+
+      <footer className="border-t bg-white py-6 text-center text-xs text-gray-400 px-4">
+        <p>
+          &copy; {new Date().getFullYear()} {BRAND.name} · Jindal MZN · Muzaffarnagar — PVC Panels |
+          Home Decor
+        </p>
+      </footer>
 
       <Dialog open={orderOpen} onOpenChange={setOrderOpen}>
         <DialogContent>

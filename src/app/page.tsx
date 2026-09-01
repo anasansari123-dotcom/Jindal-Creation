@@ -1,16 +1,22 @@
 import type { Metadata } from "next";
-import { siteMetadata } from "@/lib/seo";
+import { JsonLd } from "@/components/json-ld";
+import { faqPageJsonLd, siteMetadata } from "@/lib/seo";
 import { LandingPage } from "@/components/landing-page";
 
 export const metadata: Metadata = siteMetadata({
-  title: "Jindal Creation — PVC Panels & Home Decor in Muzaffarnagar",
+  title: "Jindal Creation | Jindal MZN — PVC Panels Near Me Muzaffarnagar",
   description:
-    "Muzaffarnagar ka trusted PVC panels & home decor supplier — Jindal Creation. PVC stock, wall panels, interior products. Online stock check & WhatsApp order. Saharanpur, Meerut area delivery.",
+    "Jindal Creation Muzaffarnagar (Jindal MZN) — search Jindal Creation near me for PVC panels, PVC stock, home decor & interior products. Jindal Muzaffarnagar · WhatsApp order · Saharanpur, Meerut delivery.",
   alternates: {
     canonical: "/",
   },
 });
 
 export default function HomePage() {
-  return <LandingPage />;
+  return (
+    <>
+      <JsonLd data={faqPageJsonLd()} />
+      <LandingPage />
+    </>
+  );
 }

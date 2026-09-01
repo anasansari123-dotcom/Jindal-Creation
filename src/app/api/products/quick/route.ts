@@ -8,7 +8,7 @@ import { logActivity } from "@/lib/activity";
 import { getStockSplit, formatProductCatalogRates } from "@/lib/bill-pricing";
 import { getStockStatus } from "@/lib/utils";
 import { isKgProduct, formatKgQty } from "@/lib/product-units";
-import { formatProductOptionLabel, PRODUCT_NAME_DUPLICATE_MESSAGE, productNameDuplicateQuery } from "@/lib/product-display";
+import { formatProductOptionLabel } from "@/lib/product-display";
 
 /** Quick product create from bill page (Tally-style) — stock starts at 0 */
 export async function POST(request: NextRequest) {
@@ -30,12 +30,6 @@ export async function POST(request: NextRequest) {
     }
 
     await connectDB();
-
-    const name = parsed.data.name;
-    const duplicate = await Product.findOne(productNameDuplicateQuery(name));
-    if (duplicate) {
-      return apiError(PRODUCT_NAME_DUPLICATE_MESSAGE, 400);
-    }
 
     const productId = parsed.data.productId.trim();
 

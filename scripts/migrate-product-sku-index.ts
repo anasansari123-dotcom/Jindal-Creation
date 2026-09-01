@@ -1,6 +1,6 @@
 /**
- * Migration: product name unique (case-insensitive), product number may repeat.
- * Drops category+productId unique index; syncs name unique index.
+ * Migration: product name and number may both repeat.
+ * Drops legacy unique indexes; syncs current non-unique indexes.
  */
 import dotenv from "dotenv";
 import mongoose from "mongoose";
@@ -24,9 +24,10 @@ async function main() {
 
   await dropIndexIfExists(collection, "productId_1");
   await dropIndexIfExists(collection, "category_1_productId_1");
+  await dropIndexIfExists(collection, "name_1");
 
   await Product.syncIndexes();
-  console.log("Product indexes synced (unique on name, product number may repeat).");
+  console.log("Product indexes synced (name and product number may repeat).");
   console.log(
     (await collection.indexes())
       .map((idx) => `${idx.name}: ${JSON.stringify(idx.key)} unique=${!!idx.unique}`)

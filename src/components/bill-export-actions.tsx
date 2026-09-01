@@ -103,12 +103,11 @@ export function BillExportActions({
         aria-hidden="true"
         style={{
           position: "fixed",
-          left: 0,
+          left: "-10000px",
           top: 0,
-          opacity: 0,
+          width: 794,
           pointerEvents: "none",
-          zIndex: -9999,
-          overflow: "hidden",
+          zIndex: -1,
         }}
       >
         <BillPreview ref={billRef} bill={bill} />

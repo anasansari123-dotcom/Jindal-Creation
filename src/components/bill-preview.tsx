@@ -15,7 +15,6 @@ import {
   enrichBillLineItem,
   expandItemsForBillDisplay,
   formatBillLineCalculation,
-  formatLineDetail,
   formatLineRate,
   formatLineUnit,
   formatQtyDisplay,
@@ -81,19 +80,34 @@ export interface BillData {
 }
 
 const rootStyle: CSSProperties = {
-  fontFamily: "Georgia, serif",
+  fontFamily: "Georgia, 'Times New Roman', serif",
   backgroundColor: C.white,
   color: C.navy,
-  padding: 32,
+  padding: 24,
   width: 794,
+  maxWidth: 794,
+  minWidth: 794,
+  boxSizing: "border-box",
+};
+
+const cellStyle: CSSProperties = {
+  padding: "6px 4px",
+  borderBottom: `1px solid ${C.border}`,
+  verticalAlign: "top",
+  wordBreak: "break-word",
+  overflowWrap: "anywhere",
 };
 
 const thStyle: CSSProperties = {
-  padding: "8px 6px",
-  fontSize: 12,
+  padding: "8px 4px",
+  fontSize: 11,
   fontWeight: 600,
   lineHeight: 1.3,
 };
+
+/** Fixed column widths — keeps PDF / html2canvas layout stable */
+const FINAL_COL_WIDTHS = ["22%", "9%", "8%", "11%", "11%", "17%", "10%", "12%"] as const;
+const DISPATCH_COL_WIDTHS = ["42%", "14%", "14%", "30%"] as const;
 
 export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
   function BillPreview({ bill }, ref) {
@@ -116,28 +130,47 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
 
     return (
       <div ref={ref} style={rootStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: C.gold, margin: 0 }}>{title}</h2>
-            <p style={{ fontSize: 14, margin: "4px 0" }}>Bill ID: <strong>{bill.billId}</strong></p>
-            <p style={{ fontSize: 14, margin: "4px 0" }}>Date: {formatDate(bill.date)}</p>
-            {bill.orderType === "advance" && bill.readyByDate && (
-              <p style={{ fontSize: 14, margin: "4px 0", color: C.gold, fontWeight: 600 }}>
-                Maal Ready By: {formatDate(bill.readyByDate)}
-              </p>
-            )}
-          </div>
-          <div style={{ textAlign: "right", fontSize: 14 }}>
-            <p style={{ fontWeight: 700, margin: 0 }}>{bill.customerName}</p>
-            {bill.customerCode && <p style={{ margin: "2px 0" }}>ID: {bill.customerCode}</p>}
-            {bill.customerCompany && <p style={{ margin: "2px 0" }}>{bill.customerCompany}</p>}
-            {bill.customerPhone && <p style={{ margin: "2px 0" }}>Phone: {bill.customerPhone}</p>}
-            {bill.customerAddress && <p style={{ margin: "2px 0" }}>{bill.customerAddress}</p>}
-            {bill.customerCity && <p style={{ margin: "2px 0" }}>{bill.customerCity}</p>}
-          </div>
-        </div>
+        <table style={{ width: "100%", marginBottom: 20, borderCollapse: "collapse" }}>
+          <tbody>
+            <tr>
+              <td style={{ verticalAlign: "top", width: "50%", padding: 0 }}>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: C.gold, margin: 0 }}>{title}</h2>
+                <p style={{ fontSize: 13, margin: "4px 0" }}>
+                  Bill ID: <strong>{bill.billId}</strong>
+                </p>
+                <p style={{ fontSize: 13, margin: "4px 0" }}>Date: {formatDate(bill.date)}</p>
+                {bill.orderType === "advance" && bill.readyByDate && (
+                  <p style={{ fontSize: 13, margin: "4px 0", color: C.gold, fontWeight: 600 }}>
+                    Maal Ready By: {formatDate(bill.readyByDate)}
+                  </p>
+                )}
+              </td>
+              <td style={{ verticalAlign: "top", width: "50%", textAlign: "right", fontSize: 13, padding: 0 }}>
+                <p style={{ fontWeight: 700, margin: 0 }}>{bill.customerName}</p>
+                {bill.customerCode && <p style={{ margin: "2px 0" }}>ID: {bill.customerCode}</p>}
+                {bill.customerCompany && <p style={{ margin: "2px 0" }}>{bill.customerCompany}</p>}
+                {bill.customerPhone && <p style={{ margin: "2px 0" }}>Phone: {bill.customerPhone}</p>}
+                {bill.customerAddress && <p style={{ margin: "2px 0" }}>{bill.customerAddress}</p>}
+                {bill.customerCity && <p style={{ margin: "2px 0" }}>{bill.customerCity}</p>}
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
-        <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse", marginBottom: 16 }}>
+        <table
+          style={{
+            width: "100%",
+            fontSize: 12,
+            borderCollapse: "collapse",
+            marginBottom: 16,
+            tableLayout: "fixed",
+          }}
+        >
+          <colgroup>
+            {(showPricing ? FINAL_COL_WIDTHS : DISPATCH_COL_WIDTHS).map((width, i) => (
+              <col key={i} style={{ width }} />
+            ))}
+          </colgroup>
           <thead>
             <tr style={{ backgroundColor: C.navy, color: C.white }}>
               <th style={{ ...thStyle, textAlign: "left" }}>Product</th>
@@ -148,7 +181,7 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                 <>
                   <th style={{ ...thStyle, textAlign: "center" }}>Rate</th>
                   <th style={{ ...thStyle, textAlign: "left" }}>Calculation</th>
-                  <th style={{ ...thStyle, textAlign: "right" }}>Discount</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Disc.</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
                 </>
               )}
@@ -169,35 +202,69 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                 const pricing = enrichBillLineItem(item);
                 return (
                   <tr key={i} style={{ backgroundColor: i % 2 === 0 ? C.gray50 : C.white }}>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}` }}>
-                      <div style={{ fontWeight: 500 }}>{item.productName || "—"}</div>
-                      {showPricing && (
-                        <div style={{ fontSize: 10, color: C.gray500, marginTop: 2 }}>
-                          {formatLineDetail(pricing)}
-                        </div>
-                      )}
+                    <td style={{ ...cellStyle, fontWeight: 500 }}>
+                      {item.productName || "—"}
                     </td>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontFamily: "monospace", fontSize: 12 }}>
+                    <td
+                      style={{
+                        ...cellStyle,
+                        textAlign: "center",
+                        fontFamily: "monospace",
+                        fontSize: 11,
+                      }}
+                    >
                       {item.productCode || "—"}
                     </td>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontSize: 11, fontWeight: 600 }}>
+                    <td
+                      style={{
+                        ...cellStyle,
+                        textAlign: "center",
+                        fontSize: 10,
+                        fontWeight: 600,
+                      }}
+                    >
                       {formatLineUnit(pricing)}
                     </td>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontWeight: 600 }}>
+                    <td style={{ ...cellStyle, textAlign: "center", fontWeight: 600, fontSize: 11 }}>
                       {formatQtyDisplay(pricing.fullBoxes, pricing.loosePieces)}
                     </td>
                     {showPricing && (
                       <>
-                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontSize: 11, fontWeight: 500 }}>
+                        <td
+                          style={{
+                            ...cellStyle,
+                            textAlign: "center",
+                            fontSize: 10,
+                            fontWeight: 500,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {formatLineRate(pricing)}
                         </td>
-                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, fontSize: 11, color: C.gray500 }}>
+                        <td style={{ ...cellStyle, fontSize: 10, color: C.gray500 }}>
                           {formatBillLineCalculation(pricing)}
                         </td>
-                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.red600 }}>
+                        <td
+                          style={{
+                            ...cellStyle,
+                            textAlign: "right",
+                            color: C.red600,
+                            fontSize: 11,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {item.discount > 0 ? `-${formatCurrency(item.discount)}` : "—"}
                         </td>
-                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "right", fontWeight: 500, color: C.green700 }}>
+                        <td
+                          style={{
+                            ...cellStyle,
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: C.green700,
+                            fontSize: 11,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {formatCurrency(pricing.total)}
                         </td>
                       </>
@@ -210,70 +277,172 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
         </table>
 
         {showPricing && (
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <div style={{ width: 280, fontSize: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span>Subtotal:</span>
-              <span>{formatCurrency(bill.subtotal)}</span>
-            </div>
-            {bill.discount > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: C.red600, marginBottom: 4 }}>
-                <span>Discount:</span>
-                <span>-{formatCurrency(bill.discount)}</span>
-              </div>
-            )}
-            {carriedForward > 0 && (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span>Is Bill Ka Amount:</span>
-                  <span>{formatCurrency(currentBillAmount)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", color: C.gold, marginBottom: 4, fontWeight: 600 }}>
-                  <span>Purani Pending (Account):</span>
-                  <span>+{formatCurrency(carriedForward)}</span>
-                </div>
-              </>
-            )}
-            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 16, borderTop: `1px solid ${C.border}`, paddingTop: 4, marginBottom: 4 }}>
-              <span>Grand Total:</span>
-              <span>{formatCurrency(bill.total)}</span>
-            </div>
-            {cashPaid > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: C.green700, marginBottom: 4 }}>
-                <span>Customer Paid (Cash/UPI):</span>
-                <span>{formatCurrency(cashPaid)}</span>
-              </div>
-            )}
-            {(bill.creditApplied || 0) > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", color: C.green700, marginBottom: 4 }}>
-                <span>Account Advance Applied:</span>
-                <span>{formatCurrency(creditAppliedOnBill)}</span>
-              </div>
-            )}
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span>Payment Mode:</span>
-              <span style={{ fontWeight: 500 }}>{paymentModeLabel}</span>
-            </div>
-            {creditAdded > 0 ? (
-              <div style={{ display: "flex", justifyContent: "space-between", color: C.gold, fontWeight: 700, marginBottom: 4 }}>
-                <span>Advance (Account me save):</span>
-                <span>{formatCurrency(creditAdded)}</span>
-              </div>
-            ) : (
-              <div style={{ display: "flex", justifyContent: "space-between", color: C.red600, fontWeight: 700, marginBottom: 4 }}>
-                <span>Pending:</span>
-                <span>{formatCurrency(pending)}</span>
-              </div>
-            )}
-            <div style={{ fontSize: 12, color: C.gray500, borderTop: `1px solid ${C.border}`, paddingTop: 4, marginBottom: 4 }}>
-              {formatBillPaymentFormula(payment)}
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.gray500 }}>
-              <span>Status:</span>
-              <span>{paymentStatus}</span>
-            </div>
-          </div>
-        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 8 }}>
+          <tbody>
+            <tr>
+              <td style={{ padding: 0, verticalAlign: "top" }} />
+              <td style={{ padding: 0, width: 320, verticalAlign: "top" }}>
+                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: "3px 0" }}>Subtotal:</td>
+                      <td style={{ padding: "3px 0", textAlign: "right", whiteSpace: "nowrap" }}>
+                        {formatCurrency(bill.subtotal)}
+                      </td>
+                    </tr>
+                    {bill.discount > 0 && (
+                      <tr>
+                        <td style={{ padding: "3px 0", color: C.red600 }}>Discount:</td>
+                        <td style={{ padding: "3px 0", textAlign: "right", color: C.red600, whiteSpace: "nowrap" }}>
+                          -{formatCurrency(bill.discount)}
+                        </td>
+                      </tr>
+                    )}
+                    {carriedForward > 0 && (
+                      <>
+                        <tr>
+                          <td style={{ padding: "3px 0" }}>Is Bill Ka Amount:</td>
+                          <td style={{ padding: "3px 0", textAlign: "right", whiteSpace: "nowrap" }}>
+                            {formatCurrency(currentBillAmount)}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style={{ padding: "3px 0", color: C.gold, fontWeight: 600 }}>
+                            Purani Pending:
+                          </td>
+                          <td
+                            style={{
+                              padding: "3px 0",
+                              textAlign: "right",
+                              color: C.gold,
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            +{formatCurrency(carriedForward)}
+                          </td>
+                        </tr>
+                      </>
+                    )}
+                    <tr>
+                      <td
+                        style={{
+                          padding: "6px 0 3px",
+                          fontWeight: 700,
+                          fontSize: 15,
+                          borderTop: `1px solid ${C.border}`,
+                        }}
+                      >
+                        Grand Total:
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 0 3px",
+                          textAlign: "right",
+                          fontWeight: 700,
+                          fontSize: 15,
+                          borderTop: `1px solid ${C.border}`,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatCurrency(bill.total)}
+                      </td>
+                    </tr>
+                    {cashPaid > 0 && (
+                      <tr>
+                        <td style={{ padding: "3px 0", color: C.green700 }}>Customer Paid:</td>
+                        <td
+                          style={{
+                            padding: "3px 0",
+                            textAlign: "right",
+                            color: C.green700,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatCurrency(cashPaid)}
+                        </td>
+                      </tr>
+                    )}
+                    {(bill.creditApplied || 0) > 0 && (
+                      <tr>
+                        <td style={{ padding: "3px 0", color: C.green700 }}>Advance Applied:</td>
+                        <td
+                          style={{
+                            padding: "3px 0",
+                            textAlign: "right",
+                            color: C.green700,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatCurrency(creditAppliedOnBill)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td style={{ padding: "3px 0" }}>Payment Mode:</td>
+                      <td style={{ padding: "3px 0", textAlign: "right", fontWeight: 500 }}>
+                        {paymentModeLabel}
+                      </td>
+                    </tr>
+                    {creditAdded > 0 ? (
+                      <tr>
+                        <td style={{ padding: "3px 0", color: C.gold, fontWeight: 700 }}>
+                          Advance Save:
+                        </td>
+                        <td
+                          style={{
+                            padding: "3px 0",
+                            textAlign: "right",
+                            color: C.gold,
+                            fontWeight: 700,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatCurrency(creditAdded)}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <td style={{ padding: "3px 0", color: C.red600, fontWeight: 700 }}>Pending:</td>
+                        <td
+                          style={{
+                            padding: "3px 0",
+                            textAlign: "right",
+                            color: C.red600,
+                            fontWeight: 700,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatCurrency(pending)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td
+                        colSpan={2}
+                        style={{
+                          fontSize: 11,
+                          color: C.gray500,
+                          borderTop: `1px solid ${C.border}`,
+                          paddingTop: 6,
+                          paddingBottom: 3,
+                        }}
+                      >
+                        {formatBillPaymentFormula(payment)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: "3px 0", fontSize: 12, color: C.gray500 }}>Status:</td>
+                      <td style={{ padding: "3px 0", textAlign: "right", fontSize: 12, color: C.gray500 }}>
+                        {paymentStatus}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+          </tbody>
+        </table>
         )}
 
         {bill.notes && (

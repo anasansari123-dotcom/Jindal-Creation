@@ -174,7 +174,7 @@ export function QuickProductDialog({
                 placeholder="e.g. New Item"
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">Unique naam — same name do baar nahi</p>
+              <p className="text-xs text-gray-500 mt-1">Same naam se multiple products ho sakte hain</p>
             </div>
             <div>
               <Label>Product Number *</Label>

@@ -1,13 +1,19 @@
 import type { Metadata } from "next";
-import { siteMetadata } from "@/lib/seo";
+import { JsonLd } from "@/components/json-ld";
+import { siteMetadata, stockPageJsonLd } from "@/lib/seo";
 
 export const metadata: Metadata = siteMetadata({
-  title: "Check PVC Panel Stock — Muzaffarnagar | Jindal Creation",
+  title: "PVC Panel Stock — Jindal Creation MZN Muzaffarnagar Near Me",
   description:
-    "Jindal Creation Muzaffarnagar — live PVC panel & home decor stock check. Product ID se search karein, pieces/box me order karein, WhatsApp par bhejein.",
+    "Jindal Creation Muzaffarnagar (Jindal MZN) live stock — PVC panels, home decor, interior products. Search Jindal Creation near me, product ID se check karein, WhatsApp par order karein.",
   alternates: { canonical: "/stock" },
 });
 
 export default function StockLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      <JsonLd data={stockPageJsonLd()} />
+      {children}
+    </>
+  );
 }

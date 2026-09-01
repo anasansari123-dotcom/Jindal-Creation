@@ -89,6 +89,16 @@ export const BRAND = {
   slogan: "Designing Spaces, Defining Style",
 };
 
+/** Brand aliases — used in schema markup & on-page SEO */
+export const SEO_ALTERNATE_NAMES = [
+  "Jindal MZN",
+  "Jindal Muzaffarnagar",
+  "Jindal Creation MZN",
+  "Jindal Creation Muzaffarnagar",
+  "Jindal PVC Muzaffarnagar",
+  "Jindal Home Decor Muzaffarnagar",
+] as const;
+
 /** Local SEO — Muzaffarnagar (update street address in Admin if needed) */
 export const LOCAL_BUSINESS = {
   address: {
@@ -105,6 +115,7 @@ export const LOCAL_BUSINESS = {
   phoneDisplay: "+91 95480 00895",
   phoneE164: "919548000895",
   email: "admin@jindalcreation.com",
+  googleMapsQuery: "Jindal Creation Muzaffarnagar",
   serviceAreas: [
     "Muzaffarnagar",
     "Saharanpur",
@@ -120,7 +131,9 @@ export const LOCAL_BUSINESS = {
     "Interior Products",
     "Wholesale Supply",
   ],
-  sameAs: [] as string[],
+  sameAs: [
+    "https://www.google.com/maps/search/?api=1&query=Jindal+Creation+Muzaffarnagar",
+  ] as string[],
 };
 
 export const DEFAULT_WHATSAPP_NUMBER = "919548000895";
