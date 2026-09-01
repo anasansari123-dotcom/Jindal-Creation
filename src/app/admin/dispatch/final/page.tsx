@@ -9,9 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { PageLoader } from "@/components/ui/loading";
-import { ConfirmDialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { BillItemsTable } from "@/components/bill-items-table";
 import { ArrowLeft, CheckCircle, Search, FileText } from "lucide-react";
 
@@ -58,8 +57,6 @@ function CreateFinalBillContent() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
-  const [converting, setConverting] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const [customerId, setCustomerId] = useState("");
   const [dispatchIdInput, setDispatchIdInput] = useState("");
@@ -135,24 +132,9 @@ function CreateFinalBillContent() {
     }
   }, [customerId, mode, loadPendingForCustomer]);
 
-  const handleConvert = async () => {
+  const handleGoToFinalize = () => {
     if (!selectedBill) return;
-    setConverting(true);
-    try {
-      const res = await fetch(`/api/dispatch/${selectedBill._id}`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        toast(data.error, "error");
-        return;
-      }
-      toast("Final Bill ban gaya — stock minus ho gaya", "success");
-      setConfirmOpen(false);
-      router.push(`/admin/dispatch/${selectedBill._id}`);
-    } catch {
-      toast("Something went wrong", "error");
-    } finally {
-      setConverting(false);
-    }
+    router.push(`/admin/dispatch/${selectedBill._id}/edit?finalize=1`);
   };
 
   if (loading) return <PageLoader />;
@@ -168,14 +150,14 @@ function CreateFinalBillContent() {
         <div>
           <h1 className="text-2xl font-serif font-bold text-navy">Create Final Bill</h1>
           <p className="text-sm text-gray-500">
-            Final Bill sirf existing Dispatch Bill se banega — tab stock minus hoga
+            Dispatch select karein — rate aur payment review karke Final Bill banayein
           </p>
         </div>
       </div>
 
       <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
-        <strong>Rule:</strong> Pehle Dispatch Bill banao (stock minus nahi hoga).
-        Final Bill banate waqt dispatch bill select karo — tab hi stock inventory se minus hoga.
+        <strong>Rule:</strong> Pehle Dispatch Bill banao (sirf products/qty, bina price).
+        Final Bill banate waqt rate aur payment review karein — tab stock minus hoga.
       </div>
 
       <div className="flex gap-2">
@@ -241,14 +223,13 @@ function CreateFinalBillContent() {
                         <p className="text-xs text-gray-400">
                           Order: {formatDate(bill.dispatchDate)}
                           {bill.readyByDate && ` · Ready by: ${formatDate(bill.readyByDate)}`}
-                          {bill.advance ? ` · Advance: ${formatCurrency(bill.advance)}` : ""}
+                          {bill.items?.length ? ` · ${bill.items.length} item(s)` : ""}
                         </p>
                       </div>
-                      <p className="font-bold text-navy shrink-0">{formatCurrency(bill.total)}</p>
                     </div>
                     {bill.items?.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-gray-100">
-                        <BillItemsTable items={bill.items} />
+                        <BillItemsTable items={bill.items} showPricing={false} />
                       </div>
                     )}
                   </button>
@@ -283,16 +264,18 @@ function CreateFinalBillContent() {
                 <div>
                   <p className="font-semibold text-gold">{selectedBill.dispatchId}</p>
                   <p className="text-sm">
-                    {selectedBill.customerName} · {formatCurrency(selectedBill.total)}
+                    {selectedBill.customerName}
+                    {selectedBill.items?.length ? ` · ${selectedBill.items.length} item(s)` : ""}
                   </p>
                   {selectedBill.readyByDate && (
                     <p className="text-xs text-gold mt-1">
                       Maal ready by: {formatDate(selectedBill.readyByDate)}
-                      {selectedBill.advance ? ` · Advance paid: ${formatCurrency(selectedBill.advance)}` : ""}
                     </p>
                   )}
                 </div>
-                {selectedBill.items?.length > 0 && <BillItemsTable items={selectedBill.items} />}
+                {selectedBill.items?.length > 0 && (
+                  <BillItemsTable items={selectedBill.items} showPricing={false} />
+                )}
               </div>
             )}
           </CardContent>
@@ -311,10 +294,10 @@ function CreateFinalBillContent() {
             <div className="text-sm space-y-1">
               <p><strong>Dispatch Bill:</strong> {selectedBill.dispatchId}</p>
               <p><strong>Customer:</strong> {selectedBill.customerName}</p>
-              <p><strong>Amount:</strong> {formatCurrency(selectedBill.total)}</p>
+              <p className="text-gray-600">Rate aur payment review screen par set honge</p>
             </div>
             {selectedBill.items?.length > 0 && (
-              <BillItemsTable items={selectedBill.items} />
+              <BillItemsTable items={selectedBill.items} showPricing={false} />
             )}
             <p className="text-xs text-red-600">
               Final Bill generate hone par product stock inventory se minus ho jayega.
@@ -323,23 +306,13 @@ function CreateFinalBillContent() {
               <Link href={`/admin/dispatch/${selectedBill._id}`}>
                 <Button variant="outline">View Dispatch Bill</Button>
               </Link>
-              <Button variant="gold" onClick={() => setConfirmOpen(true)}>
-                <CheckCircle className="h-4 w-4" /> Generate Final Bill
+              <Button variant="gold" onClick={handleGoToFinalize}>
+                <CheckCircle className="h-4 w-4" /> Review Rates & Create Final Bill
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
-
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="Generate Final Bill"
-        description={`Dispatch bill ${selectedBill?.dispatchId} ko Final Bill me convert karein? Stock inventory se minus ho jayega.`}
-        confirmLabel="Generate Final Bill & Deduct Stock"
-        onConfirm={handleConvert}
-        loading={converting}
-      />
     </div>
   );
 }

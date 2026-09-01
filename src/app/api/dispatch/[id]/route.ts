@@ -10,6 +10,9 @@ import { logActivity } from "@/lib/activity";
 import { ConfirmBill } from "@/lib/models/ConfirmBill";
 import { dispatchBillSchema } from "@/lib/validations/dispatch";
 import { applyDispatchBillPayment } from "@/lib/payment-allocation";
+import { getCustomerAccountBalance } from "@/lib/bill-account-balance";
+import { computeDispatchBillTotals } from "@/lib/dispatch-bill-totals";
+import { normalizePaymentMode } from "@/lib/constants";
 
 export async function GET(
   _request: NextRequest,
@@ -24,13 +27,18 @@ export async function GET(
     const dispatch = await Dispatch.findById(id).lean();
     if (!dispatch) return apiError("Dispatch bill not found", 404);
 
+    const storedPaymentMode = dispatch.paymentMode;
     const paymentMode = await resolveBillPaymentMode(
       String(dispatch._id),
       dispatch.paymentMode,
       dispatch.advance
     );
 
-    const enriched = enrichDispatchBill({ ...dispatch, paymentMode });
+    const enriched = enrichDispatchBill({
+      ...dispatch,
+      paymentMode,
+      storedPaymentMode,
+    });
 
     return apiSuccess({ dispatch: enriched });
   } catch (error) {
@@ -132,16 +140,15 @@ export async function PUT(
 
     const dispatch = await Dispatch.findById(id);
     if (!dispatch) return apiError("Dispatch bill not found", 404);
-    if (dispatch.billStatus === "FINAL") {
-      return apiError("Final Bill edit nahi ho sakti", 400);
-    }
-    if (dispatch.inventoryDeducted) {
+    if (dispatch.inventoryDeducted && dispatch.billStatus !== "FINAL") {
       return apiError("Stock deduct ho chuka hai — bill edit nahi ho sakti", 400);
     }
 
+    const isFinalBill = dispatch.billStatus === "FINAL";
+
     const parsed = dispatchBillSchema.safeParse(body);
     if (!parsed.success) {
-      return apiError(parsed.error.issues[0].message, 400);
+      return apiError(parsed.error.issues.map((issue) => issue.message).join("; "), 400);
     }
 
     const previousItems = [...dispatch.items];
@@ -165,10 +172,28 @@ export async function PUT(
     const cashPaid = parsed.data.advance ?? 0;
     const previousCreditAdded = dispatch.creditAdded || 0;
     const previousCreditApplied = dispatch.creditApplied || 0;
-    const carriedForwardPending = dispatch.carriedForwardPending || 0;
 
-    const currentBillAmount = Math.max(0, subtotal - discount);
-    const billTotal = currentBillAmount + carriedForwardPending;
+    let carriedForwardPending = dispatch.carriedForwardPending || 0;
+    const customerIdStr =
+      parsed.data.customerId || dispatch.customerId?.toString();
+    if (!isFinalBill) {
+      if (customerIdStr && parsed.data.includeCarriedForward !== false) {
+        const balance = await getCustomerAccountBalance(customerIdStr);
+        carriedForwardPending = balance?.pendingFromOldBills ?? 0;
+      } else if (parsed.data.includeCarriedForward === false) {
+        carriedForwardPending = 0;
+      }
+    }
+
+    const totals = computeDispatchBillTotals({
+      subtotal,
+      discount,
+      carriedForwardPending,
+      cashPaid,
+    });
+
+    const currentBillAmount = totals.currentBillAmount;
+    const billTotal = totals.total;
 
     if (customer) {
       applyCustomerToDispatch(dispatch, customer);
@@ -194,17 +219,20 @@ export async function PUT(
     dispatch.subtotal = subtotal;
     dispatch.discount = discount;
     dispatch.currentBillAmount = currentBillAmount;
-    dispatch.carriedForwardPending = carriedForwardPending;
+    dispatch.carriedForwardPending = totals.carriedForwardPending;
     dispatch.total = billTotal;
-    dispatch.salespersonName = parsed.data.salespersonName?.trim() || dispatch.salespersonName;
+    dispatch.salespersonName =
+      parsed.data.salespersonName?.trim() || dispatch.salespersonName || auth.user.name;
     dispatch.notes = parsed.data.notes;
 
     if (!dispatch.statusHistory) dispatch.statusHistory = [];
     dispatch.statusHistory.push({
-      status: "PENDING",
-      billStatus: "DISPATCH",
+      status: totals.pending > 0 ? "PENDING" : "COMPLETED",
+      billStatus: isFinalBill ? "FINAL" : "DISPATCH",
       date: new Date(),
-      note: "Dispatch bill update hui — products / customer / payment revise",
+      note: isFinalBill
+        ? "Final bill update — rates / payment revise"
+        : "Dispatch bill update hui — products / customer revise",
       byName: auth.user.name,
     });
 
@@ -221,7 +249,9 @@ export async function PUT(
       previousCreditAdded,
       previousCreditApplied,
       paymentMode:
-        cashPaid > 0 ? parsed.data.paymentMode || dispatch.paymentMode || "Cash" : undefined,
+        cashPaid > 0
+          ? normalizePaymentMode(parsed.data.paymentMode || dispatch.paymentMode)
+          : undefined,
     });
 
     await logActivity(

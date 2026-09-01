@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,9 +16,10 @@ import {
   enrichBillLineItem,
   formatBillLineCalculation,
   piecePriceFromBox,
+  normalizeBillRate,
 } from "@/lib/bill-pricing";
 import { BillItemsTable } from "@/components/bill-items-table";
-import { PAYMENT_METHODS } from "@/lib/constants";
+import { PAYMENT_METHODS, normalizePaymentMode } from "@/lib/constants";
 import { formatProductDisplay } from "@/lib/product-display";
 import { formatProductStock, isKgProduct } from "@/lib/product-units";
 import {
@@ -40,7 +41,7 @@ import {
   patchBillItemField,
   totalQtyForBillItem,
 } from "@/lib/dispatch-bill-form";
-import { ArrowLeft, Plus, Trash2, Save, PackagePlus, ListPlus } from "lucide-react";
+import { ArrowLeft, Plus, Save, PackagePlus, ListPlus, CheckCircle, Wallet } from "lucide-react";
 
 interface Customer {
   _id: string;
@@ -90,9 +91,9 @@ function dispatchItemsToFormRows(items: StoredDispatchItem[]): BillItemRow[] {
       ...emptyBillItemRow(),
       id: newBillItemRowId(),
       productId: pid,
-      boxPrice: item.unitPrice,
-      piecePrice: item.piecePrice ?? piecePriceFromBox(item.unitPrice, ppb),
-      kgPrice: item.unitPrice,
+      boxPrice: normalizeBillRate(item.unitPrice),
+      piecePrice: normalizeBillRate(item.piecePrice ?? piecePriceFromBox(item.unitPrice, ppb)),
+      kgPrice: normalizeBillRate(item.unitPrice),
     };
 
     if (item.sellMode === "kg") {
@@ -103,10 +104,12 @@ function dispatchItemsToFormRows(items: StoredDispatchItem[]): BillItemRow[] {
       (pricing.loosePieces > 0 && pricing.fullBoxes === 0)
     ) {
       existing.pieceQty += pricing.loosePieces;
-      existing.piecePrice = item.piecePrice ?? piecePriceFromBox(item.unitPrice, ppb);
+      existing.piecePrice = normalizeBillRate(
+        item.piecePrice ?? piecePriceFromBox(item.unitPrice, ppb)
+      );
     } else {
       existing.boxQty += pricing.fullBoxes;
-      existing.boxPrice = item.unitPrice;
+      existing.boxPrice = normalizeBillRate(item.unitPrice);
     }
 
     map.set(pid, existing);
@@ -129,14 +132,25 @@ function stockAvailableForEdit(
 }
 
 export default function EditDispatchBillPage() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <EditDispatchBillContent />
+    </Suspense>
+  );
+}
+
+function EditDispatchBillContent() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params.id as string;
+  const isFinalizeMode = searchParams.get("finalize") === "1";
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [originalItems, setOriginalItems] = useState<StoredDispatchItem[]>([]);
   const [dispatchId, setDispatchId] = useState("");
+  const [billStatus, setBillStatus] = useState<"DISPATCH" | "FINAL">("DISPATCH");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -158,7 +172,9 @@ export default function EditDispatchBillPage() {
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [bulkAddQuickCreate, setBulkAddQuickCreate] = useState(false);
   const [carriedForwardPending, setCarriedForwardPending] = useState(0);
+  const [includeCarriedForward, setIncludeCarriedForward] = useState(true);
   const [accountCredit, setAccountCredit] = useState(0);
+  const [pendingFromOldBills, setPendingFromOldBills] = useState(0);
 
   useEffect(() => {
     Promise.all([
@@ -172,11 +188,18 @@ export default function EditDispatchBillPage() {
         router.push("/admin/dispatch");
         return;
       }
-      if (dispatch.billStatus === "FINAL" || dispatch.inventoryDeducted) {
-        toast("Final bill edit nahi ho sakti", "error");
+      if (isFinalizeMode && dispatch.billStatus !== "DISPATCH") {
+        toast("Sirf Dispatch Bill ko Final me convert kar sakte hain", "error");
         router.push(`/admin/dispatch/${id}`);
         return;
       }
+      if (dispatch.inventoryDeducted && dispatch.billStatus !== "FINAL") {
+        toast("Stock deduct ho chuka hai — bill edit nahi ho sakti", "error");
+        router.push(`/admin/dispatch/${id}`);
+        return;
+      }
+
+      setBillStatus(dispatch.billStatus === "FINAL" ? "FINAL" : "DISPATCH");
 
       setDispatchId(dispatch.dispatchId);
       setCustomerId(dispatch.customerId || "");
@@ -209,7 +232,13 @@ export default function EditDispatchBillPage() {
             }).cashPaid
       );
       setCarriedForwardPending(dispatch.carriedForwardPending || 0);
-      setPaymentMode(dispatch.paymentMode || "Cash");
+      setIncludeCarriedForward((dispatch.carriedForwardPending || 0) > 0);
+      setPaymentMode(
+        normalizePaymentMode(
+          (dispatch as { storedPaymentMode?: string }).storedPaymentMode ??
+            dispatch.paymentMode
+        )
+      );
       setSalespersonName(dispatch.salespersonName || "");
       setNotes(dispatch.notes || "");
       setOriginalItems(dispatch.items || []);
@@ -222,12 +251,18 @@ export default function EditDispatchBillPage() {
           .then((r) => r.json())
           .then((data) => {
             if (data.availableCredit != null) setAccountCredit(data.availableCredit);
+            if (data.pendingFromOldBills != null) {
+              setPendingFromOldBills(data.pendingFromOldBills);
+              if (!dispatch.carriedForwardPending && data.pendingFromOldBills > 0) {
+                setIncludeCarriedForward(true);
+              }
+            }
           })
           .catch(() => {});
       }
       setLoading(false);
     });
-  }, [id, router]);
+  }, [id, router, isFinalizeMode]);
 
   const updateItem = (index: number, field: keyof BillItemRow, value: string | number) => {
     setItems((prev) => {
@@ -252,19 +287,24 @@ export default function EditDispatchBillPage() {
     return billItemRowTotal(item, p);
   };
 
+  const isFinalBill = billStatus === "FINAL";
+  const showPricing = isFinalizeMode || isFinalBill;
+  const effectiveCarriedForward =
+    showPricing && customerId && includeCarriedForward ? pendingFromOldBills : carriedForwardPending;
+
   const subtotal = items.reduce((s, i) => s + (i.productId ? getItemTotal(i) : 0), 0);
-  const billDiscount = advance > 0 ? discount : 0;
+  const billDiscount = showPricing && advance > 0 ? discount : 0;
   const { creditApplied: previewCredit } = previewCreditApplication(
-    Math.max(0, subtotal - billDiscount) + carriedForwardPending,
-    advance,
+    Math.max(0, subtotal - billDiscount) + effectiveCarriedForward,
+    showPricing ? advance : 0,
     customerId ? accountCredit : 0
   );
   const billTotals = computeDispatchBillTotals({
     subtotal,
     discount: billDiscount,
-    carriedForwardPending,
-    cashPaid: advance,
-    creditApplied: customerId ? previewCredit : 0,
+    carriedForwardPending: effectiveCarriedForward,
+    cashPaid: showPricing ? advance : 0,
+    creditApplied: customerId && showPricing ? previewCredit : 0,
   });
   const { total, pending, creditAdded, currentBillAmount } = billTotals;
 
@@ -317,10 +357,6 @@ export default function EditDispatchBillPage() {
       toast("Advance order ke liye maal ready date select karein", "error");
       return;
     }
-    if (isAdvance && advance <= 0) {
-      toast("Advance order me payment amount required hai", "error");
-      return;
-    }
 
     for (const item of validItems) {
       const p = products.find((x) => x._id === item.productId);
@@ -339,36 +375,51 @@ export default function EditDispatchBillPage() {
 
     setSubmitting(true);
     try {
+      const payload = {
+        customerId: customerId || undefined,
+        customerName,
+        customerCompany,
+        customerPhone,
+        customerAddress,
+        customerCity,
+        dispatchDate,
+        orderType,
+        readyByDate: isAdvance ? readyByDate : undefined,
+        items: validItems.map((i) => {
+          const p = products.find((x) => x._id === i.productId)!;
+          return billItemRowToApiPayload(i, p);
+        }),
+        discount: showPricing && advance > 0 ? discount : 0,
+        advance: showPricing ? advance : 0,
+        includeCarriedForward: showPricing && customerId ? includeCarriedForward : false,
+        paymentMode:
+          showPricing && advance > 0 ? normalizePaymentMode(paymentMode) : undefined,
+        salespersonName: salespersonName.trim(),
+        notes,
+      };
+
       const res = await fetch(`/api/dispatch/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerId: customerId || undefined,
-          customerName,
-          customerCompany,
-          customerPhone,
-          customerAddress,
-          customerCity,
-          dispatchDate,
-          orderType,
-          readyByDate: isAdvance ? readyByDate : undefined,
-          items: validItems.map((i) => {
-            const p = products.find((x) => x._id === i.productId)!;
-            return billItemRowToApiPayload(i, p);
-          }),
-          discount: advance > 0 ? discount : 0,
-          advance,
-          paymentMode: advance > 0 ? paymentMode : undefined,
-          salespersonName: salespersonName.trim(),
-          notes,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
         toast(data.error, "error");
         return;
       }
-      toast("Dispatch bill updated", "success");
+
+      if (isFinalizeMode) {
+        const convertRes = await fetch(`/api/dispatch/${id}`, { method: "POST" });
+        const convertData = await convertRes.json();
+        if (!convertRes.ok) {
+          toast(convertData.error, "error");
+          return;
+        }
+        toast("Final Bill ban gaya — stock minus ho gaya", "success");
+      } else {
+        toast(isFinalBill ? "Final bill updated" : "Dispatch bill updated", "success");
+      }
       router.push(`/admin/dispatch/${id}`);
     } catch {
       toast("Something went wrong", "error");
@@ -386,11 +437,30 @@ export default function EditDispatchBillPage() {
           <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
         </Link>
         <div>
-          <h1 className="text-2xl font-serif font-bold text-navy">Edit Dispatch Bill</h1>
+          <h1 className="text-2xl font-serif font-bold text-navy">
+            {isFinalizeMode
+              ? "Review & Create Final Bill"
+              : isFinalBill
+                ? "Edit Final Bill"
+                : "Edit Dispatch Bill"}
+          </h1>
           <p className="text-sm text-gold">{dispatchId}</p>
-          <p className="text-xs text-gray-500 mt-1">Final karne se pehle bill edit kar sakte hain</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {isFinalizeMode
+              ? "Rate, payment review karein — Final Bill par stock minus hoga"
+              : isFinalBill
+                ? "Final bill me rate aur payment edit kar sakte hain"
+                : "Dispatch me sirf products/qty — price Final Bill par"}
+          </p>
         </div>
       </div>
+
+      {isFinalizeMode && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>Final Bill Review:</strong> Products, rates aur customer payment verify karein.
+          Generate karne par stock inventory se minus ho jayega.
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
@@ -501,6 +571,7 @@ export default function EditDispatchBillPage() {
                 products={products}
                 onItemsChange={setItems}
                 onOpenQuickAdd={() => openQuickAdd(true)}
+                showPricing={showPricing}
               />
             </div>
             <p className="md:hidden text-sm text-gray-600">
@@ -511,13 +582,43 @@ export default function EditDispatchBillPage() {
 
         {previewItems.length > 0 && (
           <Card>
-            <CardHeader><CardTitle>Updated Bill Preview</CardTitle></CardHeader>
-            <CardContent><BillItemsTable items={previewItems} /></CardContent>
+            <CardHeader>
+              <CardTitle>{showPricing ? "Bill Preview" : "Dispatch Preview — products & qty"}</CardTitle>
+            </CardHeader>
+            <CardContent><BillItemsTable items={previewItems} showPricing={showPricing} /></CardContent>
           </Card>
         )}
 
+        {showPricing && customerId && pendingFromOldBills > 0 && (
+          <Card className="border-gold/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Wallet className="h-5 w-5 text-gold" />
+                Customer Account
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-gold/30 bg-gold/5 px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={includeCarriedForward}
+                  onChange={(e) => setIncludeCarriedForward(e.target.checked)}
+                />
+                <span>
+                  <strong>Purani pending is bill me add karein</strong>
+                  <span className="block text-xs text-gray-600 mt-0.5">
+                    {formatCurrency(pendingFromOldBills)} purani bill(s) se add hoga
+                  </span>
+                </span>
+              </label>
+            </CardContent>
+          </Card>
+        )}
+
+        {showPricing && (
         <Card>
-          <CardHeader><CardTitle>Bill Summary</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Bill Summary & Payment</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
@@ -527,8 +628,9 @@ export default function EditDispatchBillPage() {
                   min={0}
                   value={advance > 0 ? advance : ""}
                   placeholder="0"
+                  step={1}
                   onChange={(e) => {
-                    const v = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0);
+                    const v = e.target.value === "" ? 0 : Math.max(0, Math.round(Number(e.target.value) || 0));
                     setAdvance(v);
                     if (v <= 0) setDiscount(0);
                   }}
@@ -540,8 +642,11 @@ export default function EditDispatchBillPage() {
                   <Input
                     type="number"
                     min={0}
-                    value={discount}
-                    onChange={(e) => setDiscount(Number(e.target.value))}
+                    value={discount > 0 ? discount : ""}
+                    step={1}
+                    onChange={(e) =>
+                      setDiscount(Math.max(0, Math.round(Number(e.target.value) || 0)))
+                    }
                   />
                 </div>
               )}
@@ -561,12 +666,12 @@ export default function EditDispatchBillPage() {
                   <span>Discount</span><span>-{formatCurrency(billDiscount)}</span>
                 </div>
               )}
-              {carriedForwardPending > 0 && (
+              {effectiveCarriedForward > 0 && (
                 <>
                   <div className="flex justify-between"><span>Is Bill Ka Amount</span><span>{formatCurrency(currentBillAmount)}</span></div>
                   <div className="flex justify-between text-amber-700 font-medium">
                     <span>+ Purani Pending (Account)</span>
-                    <span>{formatCurrency(carriedForwardPending)}</span>
+                    <span>{formatCurrency(effectiveCarriedForward)}</span>
                   </div>
                 </>
               )}
@@ -600,10 +705,24 @@ export default function EditDispatchBillPage() {
             </div>
           </CardContent>
         </Card>
+        )}
+
+        {!showPricing && (
+          <Card>
+            <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
+            <CardContent>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex gap-3">
           <Button type="submit" variant="gold" disabled={submitting}>
-            <Save className="h-5 w-5" /> {submitting ? "Saving..." : "Save Changes"}
+            {isFinalizeMode ? (
+              <><CheckCircle className="h-5 w-5" /> {submitting ? "Generating..." : "Generate Final Bill & Deduct Stock"}</>
+            ) : (
+              <><Save className="h-5 w-5" /> {submitting ? "Saving..." : isFinalBill ? "Save Final Bill" : "Save Dispatch Bill"}</>
+            )}
           </Button>
           <Link href={`/admin/dispatch/${id}`}>
             <Button type="button" variant="outline">Cancel</Button>
@@ -620,6 +739,7 @@ export default function EditDispatchBillPage() {
         products={products}
         onProductsChange={setProducts}
         startWithQuickCreate={bulkAddQuickCreate}
+        showPricing={showPricing}
         onAdd={(rows) =>
           setItems((prev) => mergeBillItemRows(prev, rows, products))
         }

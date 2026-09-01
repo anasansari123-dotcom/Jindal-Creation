@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toast";
 import { formatCurrency, cn } from "@/lib/utils";
-import { formatProductDisplay } from "@/lib/product-display";
+import { formatProductDisplay, formatProductOptionLabel } from "@/lib/product-display";
 import { formatProductStock, isKgProduct, formatRatePerUnitLabel } from "@/lib/product-units";
 import { piecePriceFromBox } from "@/lib/bill-pricing";
 import {
@@ -23,6 +23,7 @@ import {
   defaultPricesForProduct,
   emptyBillItemRow,
   newBillItemRowId,
+  patchBillItemField,
 } from "@/lib/dispatch-bill-form";
 import {
   QuickProductDialog,
@@ -40,21 +41,31 @@ interface AddBillProductsDialogProps {
   products: BillFormProduct[];
   onProductsChange: (products: BillFormProduct[]) => void;
   onAdd: (rows: BillItemRow[]) => void;
+  /** Dispatch: qty only. Final: rates visible */
+  showPricing?: boolean;
   /** Open naya-product form immediately (e.g. from bill page "Naya Product" button) */
   startWithQuickCreate?: boolean;
 }
 
-function formatQueuedQty(row: BillItemRow, product: BillFormProduct): string {
+function formatQueuedQty(row: BillItemRow, product: BillFormProduct, showPricing: boolean): string {
   if (isKgProduct(product)) {
-    return `${row.kgQty} Kg @ ${formatCurrency(row.kgPrice || product.sellingPrice)}`;
+    return showPricing
+      ? `${row.kgQty} Kg @ ${formatCurrency(row.kgPrice || product.sellingPrice)}`
+      : `${row.kgQty} Kg`;
   }
   const parts: string[] = [];
   if (row.boxQty > 0) {
-    parts.push(`${row.boxQty} Box @ ${formatCurrency(row.boxPrice || product.sellingPrice)}`);
+    parts.push(
+      showPricing
+        ? `${row.boxQty} Box @ ${formatCurrency(row.boxPrice || product.sellingPrice)}`
+        : `${row.boxQty} Box`
+    );
   }
   if (row.pieceQty > 0) {
     const pp = row.piecePrice || piecePriceFromBox(product.sellingPrice, product.piecesPerBox);
-    parts.push(`${row.pieceQty} Pc @ ${formatCurrency(pp)}`);
+    parts.push(
+      showPricing ? `${row.pieceQty} Pc @ ${formatCurrency(pp)}` : `${row.pieceQty} Pc`
+    );
   }
   return parts.join(" + ") || "—";
 }
@@ -65,6 +76,7 @@ export function AddBillProductsDialog({
   products,
   onProductsChange,
   onAdd,
+  showPricing = true,
   startWithQuickCreate = false,
 }: AddBillProductsDialogProps) {
   const [search, setSearch] = useState("");
@@ -114,7 +126,7 @@ export function AddBillProductsDialog({
   };
 
   const updateDraft = (field: keyof BillItemRow, value: number) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
+    setDraft((prev) => patchBillItemField(prev, field, value, selected));
   };
 
   const addDraftToQueue = () => {
@@ -286,7 +298,7 @@ export function AddBillProductsDialog({
                       </div>
 
                       {isKg ? (
-                        <div className="grid grid-cols-2 gap-2 shrink-0">
+                        <div className={showPricing ? "grid grid-cols-2 gap-2 shrink-0" : "shrink-0"}>
                           <div>
                             <Label className="text-xs">Qty (Kg)</Label>
                             <Input
@@ -301,11 +313,13 @@ export function AddBillProductsDialog({
                               }
                             />
                           </div>
+                          {showPricing && (
                           <div>
                             <Label className="text-xs">Rate / Kg (₹)</Label>
                             <Input
                               type="number"
                               min={0}
+                              step="0.01"
                               value={draft.kgPrice || ""}
                               placeholder={String(selected.sellingPrice)}
                               className="h-9"
@@ -314,16 +328,18 @@ export function AddBillProductsDialog({
                               }
                             />
                           </div>
+                          )}
                         </div>
                       ) : (
                         <div className="space-y-2 shrink-0">
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className={showPricing ? "grid grid-cols-2 gap-2" : ""}>
                             <div>
                               <Label className="text-xs">Box Qty</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={draft.boxQty || ""}
+                            <Input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={draft.boxQty || ""}
                                 placeholder="0"
                                 className="h-9"
                                 onChange={(e) =>
@@ -331,12 +347,14 @@ export function AddBillProductsDialog({
                                 }
                               />
                             </div>
+                            {showPricing && (
                             <div>
                               <Label className="text-xs">{formatRatePerUnitLabel("box")}</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={draft.boxPrice || ""}
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={draft.boxPrice || ""}
                                 placeholder={String(selected.sellingPrice)}
                                 className="h-9"
                                 onChange={(e) =>
@@ -344,14 +362,16 @@ export function AddBillProductsDialog({
                                 }
                               />
                             </div>
+                            )}
                           </div>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className={showPricing ? "grid grid-cols-2 gap-2" : ""}>
                             <div>
                               <Label className="text-xs">Piece Qty</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={draft.pieceQty || ""}
+                            <Input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={draft.pieceQty || ""}
                                 placeholder="0"
                                 className="h-9"
                                 onChange={(e) =>
@@ -359,19 +379,22 @@ export function AddBillProductsDialog({
                                 }
                               />
                             </div>
+                            {showPricing && (
                             <div>
                               <Label className="text-xs">{formatRatePerUnitLabel("piece")}</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={draft.piecePrice || ""}
-                                placeholder={String(pieceRate)}
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={draft.piecePrice || ""}
+                              placeholder={String(pieceRate)}
                                 className="h-9"
                                 onChange={(e) =>
                                   updateDraft("piecePrice", Math.max(0, Number(e.target.value) || 0))
                                 }
                               />
                             </div>
+                            )}
                           </div>
                           <p className="text-[11px] text-gray-500 leading-snug">
                             Box aur Piece alag-alag — dono bill me alag lines.
@@ -433,9 +456,9 @@ export function AddBillProductsDialog({
                       >
                         <div className="min-w-0">
                           <span className="font-medium text-navy truncate block">
-                            {formatProductDisplay(p.name, p.productId)}
+                            {formatProductOptionLabel(p)}
                           </span>
-                          <span className="text-xs text-gray-500">{formatQueuedQty(row, p)}</span>
+                          <span className="text-xs text-gray-500">{formatQueuedQty(row, p, showPricing)}</span>
                         </div>
                         <Button
                           type="button"

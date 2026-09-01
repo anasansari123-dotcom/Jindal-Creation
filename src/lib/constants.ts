@@ -35,6 +35,16 @@ export const PAYMENT_METHODS = [
   "Other",
 ] as const;
 
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+/** Map stored/display payment labels to a valid bill payment method */
+export function normalizePaymentMode(mode?: string | null): PaymentMethod {
+  if (mode && (PAYMENT_METHODS as readonly string[]).includes(mode)) {
+    return mode as PaymentMethod;
+  }
+  return "Cash";
+}
+
 export const INVENTORY_TRANSACTION_TYPES = [
   "STOCK_IN",
   "SALE",

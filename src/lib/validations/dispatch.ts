@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { PAYMENT_METHODS } from "@/lib/constants";
 
+function emptyToUndefined(value: unknown) {
+  return value === "" || value === null ? undefined : value;
+}
+
 export const dispatchItemSchema = z
   .object({
     productId: z.string().min(1),
@@ -15,9 +19,21 @@ export const dispatchItemSchema = z
     pieceDiscount: z.coerce.number().min(0).default(0),
     kgDiscount: z.coerce.number().min(0).default(0),
     itemDiscount: z.coerce.number().min(0).default(0),
-    unitPrice: z.coerce.number().min(0).optional(),
-    pieceUnitPrice: z.coerce.number().min(0).optional(),
-    kgUnitPrice: z.coerce.number().min(0).optional(),
+    unitPrice: z.coerce
+      .number()
+      .min(0)
+      .transform((v) => Math.round(v * 100) / 100)
+      .optional(),
+    pieceUnitPrice: z.coerce
+      .number()
+      .min(0)
+      .transform((v) => Math.round(v * 100) / 100)
+      .optional(),
+    kgUnitPrice: z.coerce
+      .number()
+      .min(0)
+      .transform((v) => Math.round(v * 100) / 100)
+      .optional(),
   })
   .superRefine((item, ctx) => {
     const boxQty = item.boxQty || (item.sellMode === "box" || item.unitType === "boxes" ? item.quantity : 0) || 0;
@@ -42,31 +58,34 @@ export const dispatchBillSchema = z.object({
   customerCity: z.string().optional(),
   dispatchDate: z.string().optional(),
   orderType: z.enum(["immediate", "advance"]).default("immediate"),
-  readyByDate: z.string().optional(),
+  readyByDate: z.preprocess(emptyToUndefined, z.string().optional()),
   items: z.array(dispatchItemSchema).min(1, "Add at least one product"),
-  discount: z.coerce.number().min(0).default(0),
-  advance: z.coerce.number().min(0).default(0),
-  paymentMode: z.enum(PAYMENT_METHODS).optional(),
-  salespersonName: z.string().min(1, "Bill banane wale ka naam required hai").optional(),
+  discount: z.coerce.number().min(0).transform((v) => Math.round(v)).default(0),
+  advance: z.coerce.number().min(0).transform((v) => Math.round(v)).default(0),
+  paymentMode: z.preprocess(
+    (value) => {
+      const normalized = emptyToUndefined(value);
+      if (typeof normalized !== "string") return undefined;
+      return (PAYMENT_METHODS as readonly string[]).includes(normalized)
+        ? normalized
+        : undefined;
+    },
+    z.enum(PAYMENT_METHODS).optional()
+  ),
+  salespersonName: z.preprocess(
+    emptyToUndefined,
+    z.string().min(1, "Bill banane wale ka naam required hai").optional()
+  ),
   notes: z.string().optional(),
   /** When true, customer's old bill pending is added to this bill */
   includeCarriedForward: z.boolean().optional().default(true),
 }).superRefine((data, ctx) => {
-  if (data.orderType === "advance") {
-    if (!data.readyByDate?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Advance order ke liye maal ready date required hai",
-        path: ["readyByDate"],
-      });
-    }
-    if ((data.advance || 0) <= 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Advance order me kam se kam kuch payment (advance) required hai",
-        path: ["advance"],
-      });
-    }
+  if (data.orderType === "advance" && !data.readyByDate?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Advance order ke liye maal ready date required hai",
+      path: ["readyByDate"],
+    });
   }
 });
 

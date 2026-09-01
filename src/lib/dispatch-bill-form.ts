@@ -1,4 +1,4 @@
-import { calculateBillLineTotal, piecePriceFromBox } from "@/lib/bill-pricing";
+import { calculateBillLineTotal, piecePriceFromBox, normalizeBillRate } from "@/lib/bill-pricing";
 import { isKgProduct } from "@/lib/product-units";
 
 /** One product row on dispatch bill create/edit forms */
@@ -17,6 +17,7 @@ export interface BillFormProduct {
   _id: string;
   productId: string;
   name: string;
+  category?: string;
   sellingPrice: number;
   piecesPerBox: number;
   currentStock: number;
@@ -50,9 +51,30 @@ export function emptyBillItemRow(): BillItemRow {
 export function defaultPricesForProduct(product: BillFormProduct) {
   const ppb = Math.max(product.piecesPerBox, 1);
   return {
-    boxPrice: product.sellingPrice,
+    boxPrice: normalizeBillRate(product.sellingPrice),
     piecePrice: piecePriceFromBox(product.sellingPrice, ppb),
-    kgPrice: isKgProduct(product) ? product.sellingPrice : 0,
+    kgPrice: normalizeBillRate(isKgProduct(product) ? product.sellingPrice : 0),
+  };
+}
+
+function normalizeBillField(field: keyof BillItemRow, value: number): number {
+  if (field === "kgQty") return Math.max(0, value);
+  if (field === "boxQty" || field === "pieceQty") return Math.max(0, Math.round(value));
+  if (field === "boxPrice" || field === "piecePrice" || field === "kgPrice") {
+    return normalizeBillRate(value);
+  }
+  return value;
+}
+
+export function normalizeBillItemRow(row: BillItemRow): BillItemRow {
+  return {
+    ...row,
+    boxQty: Math.max(0, Math.round(row.boxQty)),
+    pieceQty: Math.max(0, Math.round(row.pieceQty)),
+    kgQty: Math.max(0, row.kgQty),
+    boxPrice: normalizeBillRate(row.boxPrice),
+    piecePrice: normalizeBillRate(row.piecePrice),
+    kgPrice: normalizeBillRate(row.kgPrice),
   };
 }
 
@@ -80,16 +102,20 @@ export function patchBillItemField(
     }
     return { ...row, productId: value };
   }
+  if (typeof value === "number") {
+    return { ...row, [field]: normalizeBillField(field, value) };
+  }
   return { ...row, [field]: value };
 }
 
 export function buildBillPreviewLines(item: BillItemRow, product: BillFormProduct) {
   const lines: ReturnType<typeof calculateBillLineTotal>[] = [];
   const ppb = Math.max(product.piecesPerBox, 1);
-  const boxPrice = item.boxPrice || product.sellingPrice;
-  const piecePrice =
-    item.piecePrice || piecePriceFromBox(product.sellingPrice, ppb);
-  const kgPrice = item.kgPrice || product.sellingPrice;
+  const boxPrice = normalizeBillRate(item.boxPrice || product.sellingPrice);
+  const piecePrice = normalizeBillRate(
+    item.piecePrice || piecePriceFromBox(product.sellingPrice, ppb)
+  );
+  const kgPrice = normalizeBillRate(item.kgPrice || product.sellingPrice);
 
   if (isKgProduct(product)) {
     if (item.kgQty > 0) {
@@ -146,16 +172,17 @@ export function billItemRowToApiPayload(item: BillItemRow, product: BillFormProd
     return {
       productId: item.productId,
       kgQty: item.kgQty,
-      unitPrice: item.kgPrice || product.sellingPrice,
+      unitPrice: normalizeBillRate(item.kgPrice || product.sellingPrice),
     };
   }
   return {
     productId: item.productId,
     boxQty: item.boxQty,
     pieceQty: item.pieceQty,
-    unitPrice: item.boxPrice || product.sellingPrice,
-    pieceUnitPrice:
-      item.piecePrice || piecePriceFromBox(product.sellingPrice, ppb),
+    unitPrice: normalizeBillRate(item.boxPrice || product.sellingPrice),
+    pieceUnitPrice: normalizeBillRate(
+      item.piecePrice || piecePriceFromBox(product.sellingPrice, ppb)
+    ),
   };
 }
 
@@ -171,10 +198,12 @@ export function mergeBillItemRows(
     return billItemRowHasQty(row, product);
   });
 
-  const normalizedAdded = added.map((row) => ({
-    ...row,
-    id: row.id || newBillItemRowId(),
-  }));
+  const normalizedAdded = added.map((row) =>
+    normalizeBillItemRow({
+      ...row,
+      id: row.id || newBillItemRowId(),
+    })
+  );
 
   return [...kept, ...normalizedAdded];
 }

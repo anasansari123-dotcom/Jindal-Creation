@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { PageLoader } from "@/components/ui/loading";
 import { toast } from "@/components/ui/toast";
-import { formatCurrency } from "@/lib/utils";
 import {
   formatBillLineCalculation,
 } from "@/lib/bill-pricing";
@@ -20,7 +19,6 @@ import {
   previewCreditApplication,
 } from "@/lib/dispatch-bill-totals";
 import { BillItemsTable } from "@/components/bill-items-table";
-import { PAYMENT_METHODS } from "@/lib/constants";
 import { isKgProduct } from "@/lib/product-units";
 import { AddBillProductsDialog } from "@/components/add-bill-products-dialog";
 import { BillFormItemsEditor } from "@/components/bill-form-items-editor";
@@ -41,7 +39,7 @@ import {
   loadDispatchBillDraft,
   saveDispatchBillDraft,
 } from "@/lib/dispatch-bill-draft";
-import { ArrowLeft, Plus, Save, CalendarClock, PackagePlus, ListPlus, Wallet, RotateCcw } from "lucide-react";
+import { ArrowLeft, Plus, Save, CalendarClock, PackagePlus, ListPlus, RotateCcw } from "lucide-react";
 
 interface AccountBalance {
   pendingFromOldBills: number;
@@ -382,10 +380,6 @@ function NewDispatchBillContent() {
       toast("Advance order ke liye maal ready date select karein", "error");
       return;
     }
-    if (isAdvance && advance <= 0) {
-      toast("Advance order me customer ne kitna pay kiya — amount daalein", "error");
-      return;
-    }
 
     for (const item of validItems) {
       const p = products.find((x) => x._id === item.productId);
@@ -421,10 +415,10 @@ function NewDispatchBillContent() {
             const p = products.find((x) => x._id === i.productId)!;
             return billItemRowToApiPayload(i, p);
           }),
-          discount: advance > 0 ? discount : 0,
-          advance,
-          includeCarriedForward: customerId ? includeCarriedForward : false,
-          paymentMode: advance > 0 ? paymentMode : undefined,
+          discount: 0,
+          advance: 0,
+          includeCarriedForward: false,
+          paymentMode: undefined,
           salespersonName: salespersonName.trim(),
           notes,
         }),
@@ -459,7 +453,7 @@ function NewDispatchBillContent() {
           <p className="text-sm text-gray-500">
             {isAdvance
               ? "Customer advance de — maal ready date par Final Bill banao, tab stock minus hoga"
-              : "Stock will NOT be deducted until Final Bill"}
+              : "Stock will NOT be deducted until Final Bill — price & payment Final Bill par set honge"}
           </p>
         </div>
         {draftSavedAt && (
@@ -486,7 +480,7 @@ function NewDispatchBillContent() {
 
       <div className="rounded-lg border border-gold/30 bg-gold/5 px-4 py-3 text-sm text-gray-700">
         Box aur Piece alag-alag add karein — bill me dono <strong>alag rows</strong> me dikhenge.
-        Kg wale product me sirf <strong>Kg qty</strong> daalein. Example: 2 Box @ ₹1,200 + 1 Pc @ ₹400 = 2 alag lines.
+        Dispatch bill me sirf <strong>qty</strong> dikhegi; rate aur payment Final Bill par set hoga.
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -598,6 +592,7 @@ function NewDispatchBillContent() {
                 products={products}
                 onItemsChange={setItems}
                 onOpenQuickAdd={() => openQuickAdd(true)}
+                showPricing={false}
               />
             </div>
             <p className="md:hidden text-sm text-gray-600">
@@ -609,168 +604,18 @@ function NewDispatchBillContent() {
         {previewItems.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Bill Preview — alag Box / Piece lines</CardTitle>
+              <CardTitle>Dispatch Preview — products & qty</CardTitle>
             </CardHeader>
             <CardContent>
-              <BillItemsTable items={previewItems} />
-            </CardContent>
-          </Card>
-        )}
-
-        {customerId && (
-          <Card className="border-gold/40">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Wallet className="h-5 w-5 text-gold" />
-                Customer Account Balance
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {balanceLoading ? (
-                <p className="text-gray-500">Account balance load ho rahi hai...</p>
-              ) : accountBalance ? (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <div className="rounded-lg bg-red-50 px-3 py-2">
-                      <p className="text-xs text-gray-500">Purani Bills Pending</p>
-                      <p className="font-bold text-red-700">{formatCurrency(accountBalance.pendingFromOldBills)}</p>
-                      {accountBalance.pendingBillCount > 0 && (
-                        <p className="text-xs text-gray-500 mt-1">{accountBalance.pendingBillCount} bill(s)</p>
-                      )}
-                    </div>
-                    <div className="rounded-lg bg-green-50 px-3 py-2">
-                      <p className="text-xs text-gray-500">Account Advance / Credit</p>
-                      <p className="font-bold text-green-700">{formatCurrency(accountBalance.availableCredit)}</p>
-                    </div>
-                    <div className="rounded-lg bg-gray-50 px-3 py-2">
-                      <p className="text-xs text-gray-500">Net Account Pending</p>
-                      <p className="font-bold text-navy">{formatCurrency(accountBalance.netAccountPending)}</p>
-                    </div>
-                  </div>
-                  {accountBalance.pendingFromOldBills > 0 && (
-                    <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-gold/30 bg-gold/5 px-3 py-2">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={includeCarriedForward}
-                        onChange={(e) => setIncludeCarriedForward(e.target.checked)}
-                      />
-                      <span>
-                        <strong>Purani pending is bill me add karein</strong>
-                        <span className="block text-xs text-gray-600 mt-0.5">
-                          {formatCurrency(accountBalance.pendingFromOldBills)} purani bill(s) se is nayi bill me add hoga.
-                          Purani bills settle ho jayengi — double count nahi hoga.
-                        </span>
-                      </span>
-                    </label>
-                  )}
-                  {accountBalance.pendingBills.length > 0 && (
-                    <div className="text-xs text-gray-500 space-y-1">
-                      {accountBalance.pendingBills.map((b) => (
-                        <div key={b.billId} className="flex justify-between">
-                          <span>{b.billId}</span>
-                          <span>{formatCurrency(b.pending)} pending</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {accountBalance.availableCredit > 0 && (
-                    <p className="text-xs text-green-700">
-                      Bill save hone par account se {formatCurrency(Math.min(previewCredit, accountBalance.availableCredit))} advance auto apply hoga (agar bill me jagah ho).
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-gray-500">Account balance load nahi hui.</p>
-              )}
+              <BillItemsTable items={previewItems} showPricing={false} />
             </CardContent>
           </Card>
         )}
 
         <Card>
-          <CardHeader><CardTitle>Bill Summary</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <Label>{isAdvance ? "Advance Payment (₹) *" : "Customer Paid (₹)"}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={advance > 0 ? advance : ""}
-                  placeholder="0"
-                  onChange={(e) => {
-                    const v = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0);
-                    setAdvance(v);
-                    if (v <= 0) setDiscount(0);
-                  }}
-                />
-              </div>
-              {advance > 0 && (
-                <div>
-                  <Label>Bill Discount (₹)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={discount}
-                    onChange={(e) => setDiscount(Number(e.target.value))}
-                  />
-                </div>
-              )}
-              <div>
-                <Label>Payment Mode</Label>
-                <Select
-                  value={paymentMode}
-                  onChange={(e) => setPaymentMode(e.target.value)}
-                  disabled={advance <= 0}
-                >
-                  {PAYMENT_METHODS.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-            <div className="rounded-lg bg-gray-50 p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-              {billDiscount > 0 && (
-                <div className="flex justify-between text-red-600"><span>Discount</span><span>-{formatCurrency(billDiscount)}</span></div>
-              )}
-              {carriedForward > 0 && (
-                <>
-                  <div className="flex justify-between"><span>Is Bill Ka Amount</span><span>{formatCurrency(currentBillAmount)}</span></div>
-                  <div className="flex justify-between text-amber-700 font-medium">
-                    <span>+ Purani Pending (Account)</span>
-                    <span>{formatCurrency(carriedForward)}</span>
-                  </div>
-                </>
-              )}
-              <div className="flex justify-between font-bold text-base border-t pt-2">
-                <span>Grand Total</span><span>{formatCurrency(total)}</span>
-              </div>
-              {cashPaidPreview > 0 && (
-                <div className="flex justify-between text-green-700"><span>Customer Paid</span><span>{formatCurrency(cashPaidPreview)}</span></div>
-              )}
-              {previewCredit > 0 && (
-                <div className="flex justify-between text-green-700">
-                  <span>Account Advance (bill par use)</span>
-                  <span>{formatCurrency(previewCredit)}</span>
-                </div>
-              )}
-              {creditAdded > 0 && (
-                <div className="flex justify-between text-gold font-semibold">
-                  <span>Advance (Account me save)</span>
-                  <span>{formatCurrency(creditAdded)}</span>
-                </div>
-              )}
-              {pending > 0 ? (
-                <div className="flex justify-between text-red-600 font-bold"><span>Pending</span><span>{formatCurrency(pending)}</span></div>
-              ) : creditAdded <= 0 ? (
-                <div className="flex justify-between text-green-700 font-bold"><span>Pending</span><span>{formatCurrency(0)}</span></div>
-              ) : null}
-            </div>
-            <div>
-              <Label>Notes</Label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
-            </div>
+          <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
+          <CardContent>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Optional notes..." />
           </CardContent>
         </Card>
 
@@ -788,6 +633,7 @@ function NewDispatchBillContent() {
         products={products}
         onProductsChange={setProducts}
         startWithQuickCreate={bulkAddQuickCreate}
+        showPricing={false}
         onAdd={(rows) =>
           setItems((prev) => mergeBillItemRows(prev, rows, products))
         }

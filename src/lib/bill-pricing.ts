@@ -2,8 +2,14 @@
 
 export type SellMode = "box" | "piece" | "mixed" | "kg";
 
+/** Billing rate — up to 2 decimal places (paise), e.g. 450.12 */
+export function normalizeBillRate(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.round(value * 100) / 100);
+}
+
 export function piecePriceFromBox(boxPrice: number, piecesPerBox: number): number {
-  return Math.round((boxPrice / Math.max(piecesPerBox, 1)) * 100) / 100;
+  return normalizeBillRate(boxPrice / Math.max(piecesPerBox, 1));
 }
 
 export function splitBoxPieces(totalPieces: number, piecesPerBox: number) {
@@ -120,14 +126,14 @@ export function calculateBillLineTotal(params: {
   discount?: number;
 }): BillLinePricing {
   const ppb = Math.max(params.piecesPerBox, 1);
-  const boxPrice = params.boxPrice;
-  const piecePrice = params.piecePrice ?? piecePriceFromBox(boxPrice, ppb);
+  const boxPrice = normalizeBillRate(params.boxPrice);
+  const piecePrice = normalizeBillRate(params.piecePrice ?? piecePriceFromBox(boxPrice, ppb));
   const discount = params.discount || 0;
 
   const { sellMode, boxQty, pieceQty, kgQty } = normalizeSellInput(params);
 
   if (sellMode === "kg") {
-    const kgPrice = params.kgPrice ?? boxPrice;
+    const kgPrice = normalizeBillRate(params.kgPrice ?? boxPrice);
     const subtotal = kgQty * kgPrice;
     const total = Math.max(0, Math.round(subtotal - discount));
     return {
@@ -193,8 +199,8 @@ export function enrichBillLineItem(item: {
   quantity?: number;
 }): BillLinePricing {
   const ppb = Math.max(item.piecesPerBox || 1, 1);
-  const boxPrice = item.unitPrice;
-  const piecePrice = item.piecePrice ?? piecePriceFromBox(boxPrice, ppb);
+  const boxPrice = normalizeBillRate(item.unitPrice);
+  const piecePrice = normalizeBillRate(item.piecePrice ?? piecePriceFromBox(boxPrice, ppb));
   const discount = item.discount || 0;
 
   let fullBoxes: number;
@@ -202,7 +208,7 @@ export function enrichBillLineItem(item: {
 
   if (item.sellMode === "kg") {
     const kgQty = item.quantity ?? item.pieces ?? 0;
-    const kgPrice = item.unitPrice;
+    const kgPrice = normalizeBillRate(item.unitPrice);
     const subtotal = kgQty * kgPrice;
     const total = Math.max(0, Math.round(subtotal - discount));
     return {

@@ -16,13 +16,14 @@ import { Select } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
 import { Plus, Trash2, Truck } from "lucide-react";
 import { formatAvailableStockFromPieces } from "@/lib/stock-display";
-import { formatProductDisplay } from "@/lib/product-display";
+import { formatProductOptionLabel } from "@/lib/product-display";
 import { formatKgQty, formatProductStock, isKgProduct } from "@/lib/product-units";
 
 export interface StockInProduct {
   _id: string;
   productId: string;
   name: string;
+  category?: string;
   piecesPerBox: number;
   currentStock: number;
   sellingUnit?: string;
@@ -206,7 +207,7 @@ function StockInDialogForm({
                 <option value="">Select product</option>
                 {products.map((p) => (
                   <option key={p._id} value={p._id}>
-                    {formatProductDisplay(p.name, p.productId)}
+                    {formatProductOptionLabel(p)}
                   </option>
                 ))}
               </Select>
@@ -216,7 +217,7 @@ function StockInDialogForm({
           {activeProduct && (
             <div className="rounded-lg border bg-gray-50 px-3 py-2 text-sm">
               <p className="font-medium text-navy">
-                {formatProductDisplay(activeProduct.name, activeProduct.productId)}
+                {formatProductOptionLabel(activeProduct)}
               </p>
               <p className="text-gray-500 mt-1">
                 Abhi available: <strong>{currentStock?.summary}</strong>

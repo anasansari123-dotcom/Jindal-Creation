@@ -20,7 +20,6 @@ import {
   formatLineUnit,
   formatQtyDisplay,
 } from "@/lib/bill-pricing";
-import { BRAND } from "@/lib/constants";
 
 /** Hex colors only — html2canvas cannot parse Tailwind v4 lab() colors */
 const C = {
@@ -98,6 +97,7 @@ const thStyle: CSSProperties = {
 
 export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
   function BillPreview({ bill }, ref) {
+    const showPricing = bill.billType === "FINAL";
     const title =
       bill.billType === "FINAL"
         ? "FINAL BILL"
@@ -112,26 +112,10 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
     const paymentStatus = formatPaymentStatusLabel(bill.paymentStatus);
     const paymentModeLabel = formatBillPaymentModeLabel(bill.paymentMode, cashPaid);
     const displayItems = expandItemsForBillDisplay(bill.items ?? []);
+    const colSpan = showPricing ? 8 : 4;
 
     return (
       <div ref={ref} style={rootStyle}>
-        <div style={{ textAlign: "center", borderBottom: `2px solid ${C.gold}`, paddingBottom: 16, marginBottom: 24 }}>
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo.png"
-              alt={BRAND.name}
-              width={60}
-              height={60}
-              crossOrigin="anonymous"
-              style={{ width: 60, height: 60, objectFit: "contain" }}
-            />
-          </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{BRAND.name}</h1>
-          <p style={{ color: C.gold, fontSize: 14, margin: "4px 0 0" }}>{BRAND.tagline}</p>
-          <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0" }}>{BRAND.slogan}</p>
-        </div>
-
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: C.gold, margin: 0 }}>{title}</h2>
@@ -160,17 +144,21 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
               <th style={{ ...thStyle, textAlign: "center" }}>Item No.</th>
               <th style={{ ...thStyle, textAlign: "center" }}>Unit</th>
               <th style={{ ...thStyle, textAlign: "center" }}>Qty</th>
-              <th style={{ ...thStyle, textAlign: "center" }}>Rate</th>
-              <th style={{ ...thStyle, textAlign: "left" }}>Calculation</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Discount</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+              {showPricing && (
+                <>
+                  <th style={{ ...thStyle, textAlign: "center" }}>Rate</th>
+                  <th style={{ ...thStyle, textAlign: "left" }}>Calculation</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Discount</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
             {displayItems.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={colSpan}
                   style={{ padding: 16, textAlign: "center", color: C.gray500, fontSize: 13 }}
                 >
                   Is bill me koi product add nahi hua.
@@ -183,9 +171,11 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                   <tr key={i} style={{ backgroundColor: i % 2 === 0 ? C.gray50 : C.white }}>
                     <td style={{ padding: 8, borderBottom: `1px solid ${C.border}` }}>
                       <div style={{ fontWeight: 500 }}>{item.productName || "—"}</div>
-                      <div style={{ fontSize: 10, color: C.gray500, marginTop: 2 }}>
-                        {formatLineDetail(pricing)}
-                      </div>
+                      {showPricing && (
+                        <div style={{ fontSize: 10, color: C.gray500, marginTop: 2 }}>
+                          {formatLineDetail(pricing)}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontFamily: "monospace", fontSize: 12 }}>
                       {item.productCode || "—"}
@@ -196,18 +186,22 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                     <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontWeight: 600 }}>
                       {formatQtyDisplay(pricing.fullBoxes, pricing.loosePieces)}
                     </td>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontSize: 11, fontWeight: 500 }}>
-                      {formatLineRate(pricing)}
-                    </td>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, fontSize: 11, color: C.gray500 }}>
-                      {formatBillLineCalculation(pricing)}
-                    </td>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.red600 }}>
-                      {item.discount > 0 ? `-${formatCurrency(item.discount)}` : "—"}
-                    </td>
-                    <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "right", fontWeight: 500, color: C.green700 }}>
-                      {formatCurrency(pricing.total)}
-                    </td>
+                    {showPricing && (
+                      <>
+                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "center", fontSize: 11, fontWeight: 500 }}>
+                          {formatLineRate(pricing)}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, fontSize: 11, color: C.gray500 }}>
+                          {formatBillLineCalculation(pricing)}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.red600 }}>
+                          {item.discount > 0 ? `-${formatCurrency(item.discount)}` : "—"}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: `1px solid ${C.border}`, textAlign: "right", fontWeight: 500, color: C.green700 }}>
+                          {formatCurrency(pricing.total)}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 );
               })
@@ -215,6 +209,7 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
           </tbody>
         </table>
 
+        {showPricing && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <div style={{ width: 280, fontSize: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -279,6 +274,7 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
             </div>
           </div>
         </div>
+        )}
 
         {bill.notes && (
           <p style={{ fontSize: 12, color: C.gray500, marginTop: 16 }}>Notes: {bill.notes}</p>

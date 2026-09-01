@@ -5,7 +5,7 @@ import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { productSchema } from "@/lib/validations";
 import { logActivity } from "@/lib/activity";
 import { sanitizeSearchQuery, getStockStatus } from "@/lib/utils";
-import { sortProductsForCatalog } from "@/lib/product-display";
+import { sortProductsForCatalog, formatProductOptionLabel, PRODUCT_NAME_DUPLICATE_MESSAGE, productNameDuplicateQuery } from "@/lib/product-display";
 import { getStockSplit, formatProductCatalogRates } from "@/lib/bill-pricing";
 import { formatKgQty, isKgProduct, stockInputToStorage } from "@/lib/product-units";
 
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
           boxes: 0,
           loosePieces: 0,
           piecePrice: p.sellingPrice,
-          displayName: `${p.name} ${p.productId}`,
+          displayName: formatProductOptionLabel(p),
           stockSummary: formatKgQty(p.currentStock),
         };
       }
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
         boxes: stock.fullBoxes,
         loosePieces: stock.loosePieces,
         piecePrice: rates.piecePrice,
-        displayName: `${p.name} ${p.productId}`,
+        displayName: formatProductOptionLabel(p),
       };
     });
 
@@ -87,14 +87,13 @@ export async function POST(request: NextRequest) {
 
     await connectDB();
 
-    const productId = parsed.data.productId.trim();
-    const duplicate = await Product.findOne({ productId });
+    const name = parsed.data.name;
+    const duplicate = await Product.findOne(productNameDuplicateQuery(name));
     if (duplicate) {
-      return apiError(
-        "Ye product number pehle se use ho raha hai. Har product ka alag number hona chahiye.",
-        400
-      );
+      return apiError(PRODUCT_NAME_DUPLICATE_MESSAGE, 400);
     }
+
+    const productId = parsed.data.productId.trim();
 
     const { stockUnit, currentStock: stockQty, ...productData } = parsed.data;
     let currentStock = 0;

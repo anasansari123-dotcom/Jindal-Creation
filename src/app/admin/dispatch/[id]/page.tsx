@@ -7,8 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageLoader, EmptyState } from "@/components/ui/loading";
 import { StatusBadge } from "@/components/ui/badge";
-import { ConfirmDialog } from "@/components/ui/dialog";
-import { toast } from "@/components/ui/toast";
 import { BillPreview, type BillData } from "@/components/bill-preview";
 import { BillExportActions } from "@/components/bill-export-actions";
 import { dispatchToBillData } from "@/lib/bill-export";
@@ -78,8 +76,6 @@ export default function DispatchBillDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [whatsappNumber, setWhatsappNumber] = useState(DEFAULT_WHATSAPP_NUMBER);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [converting, setConverting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
   const fetchDispatch = () => {
@@ -125,25 +121,6 @@ export default function DispatchBillDetailPage() {
   const orderHistory = buildStatusHistory(dispatch);
   const advanceDue = getAdvanceDueStatus(dispatch.readyByDate, dispatch.billStatus);
 
-  const handleConvertToFinal = async () => {
-    setConverting(true);
-    try {
-      const res = await fetch(`/api/dispatch/${id}`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        toast(data.error, "error");
-        return;
-      }
-      toast("Converted to Final Bill — stock deducted", "success");
-      setConfirmOpen(false);
-      fetchDispatch();
-    } catch {
-      toast("Something went wrong", "error");
-    } finally {
-      setConverting(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -168,6 +145,7 @@ export default function DispatchBillDetailPage() {
         </div>
       </div>
 
+      {dispatch.billStatus === "FINAL" ? (
       <SingleBillPaymentBox
         bill={dispatch}
         billAmount={dispatch.total}
@@ -176,6 +154,11 @@ export default function DispatchBillDetailPage() {
         paymentStatus={dispatch.paymentStatus}
         label={formatBillAmountBreakdown(dispatch)}
       />
+      ) : (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          Dispatch bill — price aur payment Final Bill par set hoga. Abhi sirf products aur qty dikhai de rahi hai.
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -198,21 +181,25 @@ export default function DispatchBillDetailPage() {
               </p>
             </div>
           )}
-          <div><p className="text-gray-500">Customer Paid</p><p className="font-medium text-green-700">{formatCurrency(payment.cashPaid)}</p></div>
-          {payment.hasPending ? (
-            <div><p className="text-gray-500">Pending</p><p className="font-medium text-red-600">{formatCurrency(payment.pending)}</p></div>
-          ) : payment.hasAdvance ? (
-            <div><p className="text-gray-500">Advance (Account)</p><p className="font-medium text-gold">{formatCurrency(payment.creditAdded)}</p></div>
-          ) : (
-            <div><p className="text-gray-500">Pending</p><p className="font-medium text-green-700">{formatCurrency(0)}</p></div>
-          )}
-          {(dispatch.carriedForwardPending || 0) > 0 && (
-            <div><p className="text-gray-500">Purani Pending (is bill me)</p><p className="font-medium text-amber-700">{formatCurrency(dispatch.carriedForwardPending!)}</p></div>
-          )}
-          {(dispatch.creditApplied || 0) > 0 && (
-            <div><p className="text-gray-500">Account Advance Use</p><p className="font-medium text-green-700">{formatCurrency(dispatch.creditApplied!)}</p></div>
-          )}
           <div><p className="text-gray-500">Bill Banaya</p><p className="font-medium">{dispatch.salespersonName}</p></div>
+          {dispatch.billStatus === "FINAL" && (
+            <>
+              <div><p className="text-gray-500">Customer Paid</p><p className="font-medium text-green-700">{formatCurrency(payment.cashPaid)}</p></div>
+              {payment.hasPending ? (
+                <div><p className="text-gray-500">Pending</p><p className="font-medium text-red-600">{formatCurrency(payment.pending)}</p></div>
+              ) : payment.hasAdvance ? (
+                <div><p className="text-gray-500">Advance (Account)</p><p className="font-medium text-gold">{formatCurrency(payment.creditAdded)}</p></div>
+              ) : (
+                <div><p className="text-gray-500">Pending</p><p className="font-medium text-green-700">{formatCurrency(0)}</p></div>
+              )}
+              {(dispatch.carriedForwardPending || 0) > 0 && (
+                <div><p className="text-gray-500">Purani Pending (is bill me)</p><p className="font-medium text-amber-700">{formatCurrency(dispatch.carriedForwardPending!)}</p></div>
+              )}
+              {(dispatch.creditApplied || 0) > 0 && (
+                <div><p className="text-gray-500">Account Advance Use</p><p className="font-medium text-green-700">{formatCurrency(dispatch.creditApplied!)}</p></div>
+              )}
+            </>
+          )}
           {dispatch.convertedAt && <div><p className="text-gray-500">Final Bill Date</p><p>{formatDate(dispatch.convertedAt)}</p></div>}
         </CardContent>
       </Card>
@@ -223,6 +210,7 @@ export default function DispatchBillDetailPage() {
         </CardHeader>
         <CardContent>
           <BillItemsTable
+            showPricing={dispatch.billStatus === "FINAL"}
             items={dispatch.items.map((item) => {
               const pricing = enrichBillLineItem(item);
               return {
@@ -287,13 +275,22 @@ export default function DispatchBillDetailPage() {
               <>
                 <Link href={`/admin/dispatch/${id}/edit`}>
                   <Button variant="outline">
-                    <Pencil className="h-4 w-4" /> Edit Bill
+                    <Pencil className="h-4 w-4" /> Edit Dispatch
                   </Button>
                 </Link>
-                <Button variant="gold" onClick={() => setConfirmOpen(true)}>
-                  <CheckCircle className="h-4 w-4" /> Convert to Final Bill
-                </Button>
+                <Link href={`/admin/dispatch/${id}/edit?finalize=1`}>
+                  <Button variant="gold">
+                    <CheckCircle className="h-4 w-4" /> Review & Final Bill
+                  </Button>
+                </Link>
               </>
+            )}
+            {dispatch.billStatus === "FINAL" && (
+              <Link href={`/admin/dispatch/${id}/edit`}>
+                <Button variant="outline">
+                  <Pencil className="h-4 w-4" /> Edit Final Bill
+                </Button>
+              </Link>
             )}
           </div>
         </CardContent>
@@ -310,16 +307,6 @@ export default function DispatchBillDetailPage() {
       >
         <BillPreview ref={billRef} bill={billData} />
       </div>
-
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="Convert to Final Bill"
-        description="This will convert the dispatch bill to a Final Bill and deduct stock from inventory. This cannot be undone."
-        confirmLabel="Convert & Deduct Stock"
-        onConfirm={handleConvertToFinal}
-        loading={converting}
-      />
     </div>
   );
 }

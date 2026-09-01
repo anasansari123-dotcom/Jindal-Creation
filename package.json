@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
-    "purge-data": "tsx scripts/purge-data.ts"
+    "purge-data": "tsx scripts/purge-data.ts",
+    "migrate-product-sku": "tsx scripts/migrate-product-sku-index.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

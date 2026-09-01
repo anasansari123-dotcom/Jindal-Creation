@@ -5,7 +5,7 @@ import { getSetting } from "@/lib/models/Settings";
 import { apiError, apiSuccess } from "@/lib/api-helpers";
 import { getStockStatus, sanitizeSearchQuery } from "@/lib/utils";
 import { DEFAULT_WHATSAPP_NUMBER } from "@/lib/constants";
-import { sortProductsForCatalog, formatProductDisplay } from "@/lib/product-display";
+import { sortProductsForCatalog, formatProductDisplay, formatProductOptionLabel } from "@/lib/product-display";
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
     );
 
     const publicProducts = products.map((p) => ({
+      id: String(p._id),
       productId: p.productId,
       name: p.name,
       displayName: formatProductDisplay(p.name, p.productId),

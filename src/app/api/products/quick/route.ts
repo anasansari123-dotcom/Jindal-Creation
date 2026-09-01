@@ -8,6 +8,7 @@ import { logActivity } from "@/lib/activity";
 import { getStockSplit, formatProductCatalogRates } from "@/lib/bill-pricing";
 import { getStockStatus } from "@/lib/utils";
 import { isKgProduct, formatKgQty } from "@/lib/product-units";
+import { formatProductOptionLabel, PRODUCT_NAME_DUPLICATE_MESSAGE, productNameDuplicateQuery } from "@/lib/product-display";
 
 /** Quick product create from bill page (Tally-style) — stock starts at 0 */
 export async function POST(request: NextRequest) {
@@ -30,14 +31,13 @@ export async function POST(request: NextRequest) {
 
     await connectDB();
 
-    const productId = parsed.data.productId.trim();
-    const duplicate = await Product.findOne({ productId });
+    const name = parsed.data.name;
+    const duplicate = await Product.findOne(productNameDuplicateQuery(name));
     if (duplicate) {
-      return apiError(
-        "Ye product number pehle se hai. Alag number daalein.",
-        400
-      );
+      return apiError(PRODUCT_NAME_DUPLICATE_MESSAGE, 400);
     }
+
+    const productId = parsed.data.productId.trim();
 
     const sellingUnit = parsed.data.sellingUnit;
     const product = await Product.create({
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
           boxes: stock.fullBoxes,
           loosePieces: stock.loosePieces,
           piecePrice: rates.piecePrice,
-          displayName: `${product.name} ${product.productId}`,
+          displayName: formatProductOptionLabel(product),
           stockSummary: isKgProduct(product)
             ? formatKgQty(product.currentStock)
             : undefined,

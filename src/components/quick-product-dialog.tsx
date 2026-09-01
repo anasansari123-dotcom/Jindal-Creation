@@ -174,6 +174,7 @@ export function QuickProductDialog({
                 placeholder="e.g. New Item"
                 required
               />
+              <p className="text-xs text-gray-500 mt-1">Unique naam — same name do baar nahi</p>
             </div>
             <div>
               <Label>Product Number *</Label>
@@ -183,6 +184,7 @@ export function QuickProductDialog({
                 placeholder="e.g. 2200"
                 required
               />
+              <p className="text-xs text-gray-500 mt-1">Same number multiple products me ho sakta hai</p>
             </div>
           </div>
 
@@ -208,6 +210,7 @@ export function QuickProductDialog({
             <Input
               type="number"
               min={0}
+              step="0.01"
               value={form.sellingPrice || ""}
               onChange={(e) =>
                 setForm((f) => ({ ...f, sellingPrice: Number(e.target.value) || 0 }))

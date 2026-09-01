@@ -107,6 +107,9 @@ export function formatBoxPieces(
 }
 
 export function getErrorMessage(error: unknown): string {
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
   if (error instanceof Error) {
     if (error.message.includes("duplicate key")) {
       return "A record with this information already exists.";

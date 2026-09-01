@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/utils";
-import { formatProductDisplay } from "@/lib/product-display";
+import { formatProductDisplay, formatProductOptionLabel } from "@/lib/product-display";
 import { isKgProduct, isPieceProduct } from "@/lib/product-units";
-import { piecePriceFromBox } from "@/lib/bill-pricing";
+import { piecePriceFromBox, normalizeBillRate } from "@/lib/bill-pricing";
 import {
   type BillFormProduct,
   type BillItemRow,
@@ -21,6 +21,8 @@ interface BillFormItemsEditorProps {
   products: BillFormProduct[];
   onItemsChange: (items: BillItemRow[]) => void;
   onOpenQuickAdd: () => void;
+  /** Dispatch bill: qty only. Final bill: rates + totals */
+  showPricing?: boolean;
 }
 
 export function BillFormItemsEditor({
@@ -28,6 +30,7 @@ export function BillFormItemsEditor({
   products,
   onItemsChange,
   onOpenQuickAdd,
+  showPricing = true,
 }: BillFormItemsEditorProps) {
   const updateItem = (index: number, field: keyof BillItemRow, value: string | number) => {
     onItemsChange(
@@ -64,7 +67,7 @@ export function BillFormItemsEditor({
               <option value="">Product select karein...</option>
               {products.map((pr) => (
                 <option key={pr._id} value={pr._id}>
-                  {formatProductDisplay(pr.name, pr.productId)}
+                  {formatProductOptionLabel(pr)}
                 </option>
               ))}
             </Select>
@@ -121,22 +124,22 @@ export function BillFormItemsEditor({
             {showBoxColumn && (
               <>
                 <th className="p-3 font-medium text-right w-20">Box</th>
-                <th className="p-3 font-medium text-right w-24">Box ₹</th>
+                {showPricing && <th className="p-3 font-medium text-right w-24">Box ₹</th>}
               </>
             )}
             {showPieceColumn && (
               <>
                 <th className="p-3 font-medium text-right w-20">Pc</th>
-                <th className="p-3 font-medium text-right w-24">Pc ₹</th>
+                {showPricing && <th className="p-3 font-medium text-right w-24">Pc ₹</th>}
               </>
             )}
             {showKgColumn && (
               <>
                 <th className="p-3 font-medium text-right w-20">Kg</th>
-                <th className="p-3 font-medium text-right w-24">Kg ₹</th>
+                {showPricing && <th className="p-3 font-medium text-right w-24">Kg ₹</th>}
               </>
             )}
-            <th className="p-3 font-medium text-right w-28">Total</th>
+            {showPricing && <th className="p-3 font-medium text-right w-28">Total</th>}
             <th className="p-3 w-10"></th>
           </tr>
         </thead>
@@ -153,7 +156,7 @@ export function BillFormItemsEditor({
               item.boxPrice > 0
                 ? item.boxPrice
                 : item.boxQty > 0 && p
-                  ? p.sellingPrice
+                  ? normalizeBillRate(p.sellingPrice)
                   : "";
             const pieceRateDisplay =
               item.piecePrice > 0
@@ -165,7 +168,7 @@ export function BillFormItemsEditor({
               item.kgPrice > 0
                 ? item.kgPrice
                 : item.kgQty > 0 && p
-                  ? p.sellingPrice
+                  ? normalizeBillRate(p.sellingPrice)
                   : "";
 
             return (
@@ -185,7 +188,7 @@ export function BillFormItemsEditor({
                         <option value="">Select...</option>
                         {products.map((pr) => (
                           <option key={pr._id} value={pr._id}>
-                            {formatProductDisplay(pr.name, pr.productId)}
+                            {formatProductOptionLabel(pr)}
                           </option>
                         ))}
                       </Select>
@@ -206,6 +209,7 @@ export function BillFormItemsEditor({
                         <Input
                           type="number"
                           min={0}
+                          step={1}
                           className="h-9 text-right"
                           value={item.boxQty > 0 ? item.boxQty : ""}
                           placeholder="0"
@@ -217,11 +221,13 @@ export function BillFormItemsEditor({
                         dash
                       )}
                     </td>
+                    {showPricing && (
                     <td className="p-2">
                       {boxActive ? (
                         <Input
                           type="number"
                           min={0}
+                          step="0.01"
                           className="h-9 text-right"
                           value={boxRateDisplay}
                           placeholder={String(p!.sellingPrice)}
@@ -233,6 +239,7 @@ export function BillFormItemsEditor({
                         dash
                       )}
                     </td>
+                    )}
                   </>
                 )}
                 {showPieceColumn && (
@@ -242,6 +249,7 @@ export function BillFormItemsEditor({
                         <Input
                           type="number"
                           min={0}
+                          step={1}
                           className="h-9 text-right"
                           value={item.pieceQty > 0 ? item.pieceQty : ""}
                           placeholder="0"
@@ -253,11 +261,13 @@ export function BillFormItemsEditor({
                         dash
                       )}
                     </td>
+                    {showPricing && (
                     <td className="p-2">
                       {pieceActive ? (
                         <Input
                           type="number"
                           min={0}
+                          step="0.01"
                           className="h-9 text-right"
                           value={pieceRateDisplay}
                           placeholder={String(pieceDefault)}
@@ -269,6 +279,7 @@ export function BillFormItemsEditor({
                         dash
                       )}
                     </td>
+                    )}
                   </>
                 )}
                 {showKgColumn && (
@@ -290,11 +301,13 @@ export function BillFormItemsEditor({
                         dash
                       )}
                     </td>
+                    {showPricing && (
                     <td className="p-2">
                       {isKg ? (
                         <Input
                           type="number"
                           min={0}
+                          step="0.01"
                           className="h-9 text-right"
                           value={kgRateDisplay}
                           placeholder={String(p!.sellingPrice)}
@@ -306,11 +319,14 @@ export function BillFormItemsEditor({
                         dash
                       )}
                     </td>
+                    )}
                   </>
                 )}
+                {showPricing && (
                 <td className="p-2 text-right font-medium text-green-700 whitespace-nowrap">
                   {p ? formatCurrency(total) : "—"}
                 </td>
+                )}
                 <td className="p-2">
                   <Button
                     type="button"

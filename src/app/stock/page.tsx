@@ -33,6 +33,7 @@ import { generateWhatsAppUrl } from "@/lib/utils";
 import { groupProductsByCategory, formatProductDisplay } from "@/lib/product-display";
 
 interface StockProduct {
+  id: string;
   productId: string;
   name: string;
   displayName?: string;
@@ -43,8 +44,10 @@ interface StockProduct {
 }
 
 interface CartItem {
+  id: string;
   productId: string;
   productName: string;
+  category: string;
   unitType: "pieces" | "boxes";
   quantity: number;
   piecesPerBox: number;
@@ -83,7 +86,7 @@ export default function StockPage() {
   }, [fetchStock]);
 
   const checkAvailability = async (
-    productId: string,
+    product: Pick<StockProduct, "id" | "productId" | "category">,
     itemUnitType: "pieces" | "boxes",
     itemQty: number,
     existingCart: CartItem[]
@@ -92,10 +95,13 @@ export default function StockPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        productId,
+        id: product.id,
+        productId: product.productId,
+        category: product.category,
         unitType: itemUnitType,
         quantity: itemQty,
         cartItems: existingCart.map((c) => ({
+          id: c.id,
           productId: c.productId,
           unitType: c.unitType,
           quantity: c.quantity,
@@ -142,7 +148,7 @@ export default function StockPage() {
 
     try {
       const result = await checkAvailability(
-        orderProduct.productId,
+        orderProduct,
         orderUnit,
         orderQty,
         cart
@@ -158,11 +164,11 @@ export default function StockPage() {
 
       setCart((prev) => {
         const existing = prev.find(
-          (c) => c.productId === orderProduct.productId && c.unitType === orderUnit
+          (c) => c.id === orderProduct.id && c.unitType === orderUnit
         );
         if (existing) {
           return prev.map((c) =>
-            c.productId === orderProduct.productId && c.unitType === orderUnit
+            c.id === orderProduct.id && c.unitType === orderUnit
               ? { ...c, quantity: c.quantity + orderQty }
               : c
           );
@@ -170,8 +176,10 @@ export default function StockPage() {
         return [
           ...prev,
           {
+            id: orderProduct.id,
             productId: orderProduct.productId,
             productName: orderProduct.name,
+            category: orderProduct.category,
             unitType: orderUnit,
             quantity: orderQty,
             piecesPerBox: orderProduct.piecesPerBox,
@@ -204,6 +212,7 @@ export default function StockPage() {
     if (orderPhone.trim()) msg += `Phone: ${orderPhone.trim()}\n`;
     msg += `\n--- Product Inquiry / Complaint ---\n`;
     msg += `Product: ${orderProduct.name}\n`;
+    msg += `Category: ${orderProduct.category}\n`;
     msg += `Product ID: ${orderProduct.productId}\n`;
     msg += `1 Box = ${orderProduct.piecesPerBox} pieces\n`;
     msg += `Required: ${orderQty} ${orderUnit}`;
@@ -232,20 +241,20 @@ export default function StockPage() {
       return;
     }
 
-    const totalsByProduct = new Map<string, { name: string; pieces: number }>();
+    const totalsByProduct = new Map<string, { product: CartItem; pieces: number }>();
     for (const item of cart) {
       const pieces = item.unitType === "boxes" ? item.quantity * item.piecesPerBox : item.quantity;
-      const existing = totalsByProduct.get(item.productId);
-      totalsByProduct.set(item.productId, {
-        name: item.productName,
+      const existing = totalsByProduct.get(item.id);
+      totalsByProduct.set(item.id, {
+        product: item,
         pieces: (existing?.pieces || 0) + pieces,
       });
     }
 
-    for (const [productId, { name, pieces }] of totalsByProduct) {
-      const result = await checkAvailability(productId, "pieces", pieces, []);
+    for (const { product, pieces } of totalsByProduct.values()) {
+      const result = await checkAvailability(product, "pieces", pieces, []);
       if (!result.available) {
-        toast(`${name}: ${result.message}`, "error");
+        toast(`${product.productName}: ${result.message}`, "error");
         return;
       }
     }
@@ -257,6 +266,7 @@ export default function StockPage() {
 
     cart.forEach((item, i) => {
       msg += `${i + 1}. ${item.productName}\n`;
+      msg += `   Category: ${item.category}\n`;
       msg += `   Product ID: ${item.productId}\n`;
       msg += `   1 Box = ${item.piecesPerBox} pieces\n`;
       msg += `   Quantity: ${item.quantity} ${item.unitType}\n\n`;
@@ -324,7 +334,7 @@ export default function StockPage() {
                     {/* Mobile card view */}
                     <div className="md:hidden divide-y">
                       {group.products.map((p) => (
-                        <div key={p.productId} className="p-4 space-y-3">
+                        <div key={p.id} className="p-4 space-y-3">
                           <div>
                             <p className="font-medium text-navy text-sm">
                               {p.displayName || formatProductDisplay(p.name, p.productId)}
@@ -373,7 +383,7 @@ export default function StockPage() {
                       </thead>
                       <tbody>
                         {group.products.map((p) => (
-                          <tr key={p.productId} className="border-t hover:bg-gray-50">
+                          <tr key={p.id} className="border-t hover:bg-gray-50">
                             <td className="px-4 py-3 font-medium text-navy">
                               {p.displayName || formatProductDisplay(p.name, p.productId)}
                             </td>

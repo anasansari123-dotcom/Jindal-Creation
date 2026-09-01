@@ -4,6 +4,7 @@ import { Product, InventoryTransaction, Dispatch } from "@/lib/models";
 import { requireAuth, apiError, apiSuccess } from "@/lib/api-helpers";
 import { productSchema } from "@/lib/validations";
 import { logActivity } from "@/lib/activity";
+import { PRODUCT_NAME_DUPLICATE_MESSAGE, productNameDuplicateQuery } from "@/lib/product-display";
 import { stockInputToStorage } from "@/lib/product-units";
 
 export async function GET(
@@ -43,17 +44,11 @@ export async function PUT(
     const existing = await Product.findById(id);
     if (!existing) return apiError("Product not found", 404);
 
-    const productId = parsed.data.productId.trim();
-    if (productId !== existing.productId) {
-      const duplicate = await Product.findOne({
-        productId,
-        _id: { $ne: id },
-      });
+    const name = parsed.data.name;
+    if (name.toLowerCase() !== existing.name.trim().toLowerCase()) {
+      const duplicate = await Product.findOne(productNameDuplicateQuery(name, id));
       if (duplicate) {
-        return apiError(
-          "Ye product number pehle se use ho raha hai. Har product ka alag number hona chahiye.",
-          400
-        );
+        return apiError(PRODUCT_NAME_DUPLICATE_MESSAGE, 400);
       }
     }
 

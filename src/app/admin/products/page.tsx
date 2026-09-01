@@ -283,7 +283,7 @@ export default function ProductsPage() {
         <div>
           <h1 className="text-2xl font-serif font-bold text-navy">Product Catalog</h1>
           <p className="text-sm text-gray-500">
-            Pehle category banayein, phir us category ke andar product name aur unique product number add karein.
+            Pehle category banayein, phir product name (unique) aur product number add karein.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -299,8 +299,8 @@ export default function ProductsPage() {
       <div className="flex items-center gap-2 rounded-lg bg-gold/10 border border-gold/30 px-4 py-3 text-sm text-navy">
         <Package className="h-5 w-5 text-gold shrink-0" />
         <span>
-          <strong>Format:</strong> Category → Product Name → Unique Number (jaise Shuper Heavy <strong>1100</strong>).
-          Har product ka number alag hoga. Stock pieces me save hota hai.
+          <strong>Format:</strong> Category → Product Name (unique) → Number (repeat ho sakta hai).
+          Same naam se do product nahi; same number alag products me use ho sakta hai.
         </span>
       </div>
 
@@ -524,22 +524,25 @@ export default function ProductsPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <Label>Product Name *</Label>
+                  <Label>Product Name * (unique)</Label>
                   <Input
                     value={form.name}
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                     placeholder="e.g. Shuper Heavy"
                   />
+                  <p className="text-xs text-gray-400 mt-1">
+                    Har product ka alag naam — duplicate name allowed nahi
+                  </p>
                 </div>
                 <div>
-                  <Label>Product Number * (unique)</Label>
+                  <Label>Product Number *</Label>
                   <Input
                     value={form.productId}
                     onChange={(e) => setForm((f) => ({ ...f, productId: e.target.value }))}
                     placeholder="e.g. 1100"
                   />
                   <p className="text-xs text-gray-400 mt-1">
-                    Har product ka alag number — duplicate allowed nahi
+                    Same number multiple products me use ho sakta hai
                   </p>
                 </div>
               </div>
@@ -661,6 +664,7 @@ export default function ProductsPage() {
                   <Input
                     type="number"
                     min={0}
+                    step="0.01"
                     value={form.costPrice}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, costPrice: Number(e.target.value) }))
@@ -672,7 +676,7 @@ export default function ProductsPage() {
                   <Input
                     type="number"
                     min={0}
-                    step={isKg ? "0.01" : "1"}
+                    step="0.01"
                     value={form.sellingPrice}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, sellingPrice: Number(e.target.value) }))

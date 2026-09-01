@@ -21,7 +21,10 @@ export const customerSchema = z.object({
 });
 
 export const quickProductSchema = z.object({
-  name: z.string().min(1, "Product name is required"),
+  name: z
+    .string()
+    .min(1, "Product name is required")
+    .transform((v) => v.trim()),
   productId: z
     .string()
     .min(1, "Product number is required")
@@ -29,7 +32,10 @@ export const quickProductSchema = z.object({
     .transform((v) => v.trim()),
   category: z.string().min(1, "Category is required"),
   sellingUnit: z.enum(["box", "piece", "kg"]).default("box"),
-  sellingPrice: z.coerce.number().min(0),
+  sellingPrice: z.coerce
+    .number()
+    .min(0)
+    .transform((v) => Math.round(v * 100) / 100),
   piecesPerBox: z.coerce.number().min(1).default(1),
 });
 
@@ -39,14 +45,26 @@ export const productSchema = z.object({
     .min(1, "Product number is required")
     .max(32, "Product number is too long")
     .transform((v) => v.trim()),
-  name: z.string().min(1, "Product name is required"),
+  name: z
+    .string()
+    .min(1, "Product name is required")
+    .transform((v) => v.trim()),
   category: z.string().min(1, "Category is required"),
   description: z.string().optional(),
   unit: z.string().min(1, "Unit is required"),
   sellingUnit: z.enum(["box", "piece", "kg"]).default("box"),
-  price: z.coerce.number().min(0),
-  costPrice: z.coerce.number().min(0),
-  sellingPrice: z.coerce.number().min(0),
+  price: z.coerce
+    .number()
+    .min(0)
+    .transform((v) => Math.round(v * 100) / 100),
+  costPrice: z.coerce
+    .number()
+    .min(0)
+    .transform((v) => Math.round(v * 100) / 100),
+  sellingPrice: z.coerce
+    .number()
+    .min(0)
+    .transform((v) => Math.round(v * 100) / 100),
   piecesPerBox: z.coerce.number().min(1),
   minimumStock: z.coerce.number().min(0),
   currentStock: z.coerce.number().min(0).optional(),

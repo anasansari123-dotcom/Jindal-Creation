@@ -7,6 +7,34 @@ export function formatProductDisplay(name: string, productId: string): string {
   return `${n} ${id}`;
 }
 
+/** Dropdown / search label when category disambiguation helps */
+export function formatProductOptionLabel(product: {
+  name: string;
+  productId: string;
+  category?: string;
+}): string {
+  const base = formatProductDisplay(product.name, product.productId);
+  const category = product.category?.trim();
+  return category ? `${base} · ${category}` : base;
+}
+
+export const PRODUCT_NAME_DUPLICATE_MESSAGE =
+  "Ye product name pehle se use ho raha hai. Har product ka alag naam hona chahiye.";
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Case-insensitive duplicate check for product name */
+export function productNameDuplicateQuery(name: string, excludeId?: string) {
+  const trimmed = name.trim();
+  const query: Record<string, unknown> = {
+    name: { $regex: new RegExp(`^${escapeRegex(trimmed)}$`, "i") },
+  };
+  if (excludeId) query._id = { $ne: excludeId };
+  return query;
+}
+
 export function sortProductsForCatalog<
   T extends { category: string; productId: string; name: string },
 >(products: T[]): T[] {
