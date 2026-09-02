@@ -15,6 +15,13 @@ export interface ICustomer extends Document {
   notes?: string;
   /** Surplus payment credit — auto-applied on next bills or shown as advance */
   creditBalance: number;
+  /** Account documents on Cloudinary (GST, ID, agreements, etc.) */
+  documents?: Array<{
+    label: string;
+    url: string;
+    publicId: string;
+    uploadedAt: Date;
+  }>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,6 +41,17 @@ const CustomerSchema = new Schema<ICustomer>(
     gstNumber: { type: String, trim: true },
     notes: { type: String, trim: true },
     creditBalance: { type: Number, default: 0, min: 0 },
+    documents: {
+      type: [
+        {
+          label: { type: String, required: true },
+          url: { type: String, required: true },
+          publicId: { type: String, required: true },
+          uploadedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

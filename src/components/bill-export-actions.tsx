@@ -7,19 +7,43 @@ import { BillPreview, type BillData } from "@/components/bill-preview";
 import { DEFAULT_WHATSAPP_NUMBER } from "@/lib/constants";
 import {
   billElementToPDF,
+  billElementToImage,
   shareBillImageWhatsApp,
   generateBillWhatsAppMessage,
 } from "@/lib/bill-export";
+import { uploadDispatchFile } from "@/lib/cloudinary-upload-client";
 import { Download, MessageCircle } from "lucide-react";
 
 interface BillExportActionsProps {
   bill: BillData;
+  dispatchMongoId?: string;
   whatsappNumber?: string;
   compact?: boolean;
 }
 
+async function archiveBillOnCloudinary(
+  dispatchMongoId: string | undefined,
+  file: Blob,
+  filename: string,
+  fileType: "bill-pdf" | "bill-image"
+) {
+  if (!dispatchMongoId) return;
+  try {
+    await uploadDispatchFile({
+      dispatchId: dispatchMongoId,
+      file,
+      filename,
+      fileType,
+      mimeType: fileType === "bill-pdf" ? "application/pdf" : "image/png",
+    });
+  } catch (err) {
+    console.warn("Cloudinary archive failed:", err);
+  }
+}
+
 export function BillExportActions({
   bill,
+  dispatchMongoId,
   whatsappNumber = DEFAULT_WHATSAPP_NUMBER,
   compact = false,
 }: BillExportActionsProps) {
@@ -28,13 +52,15 @@ export function BillExportActions({
 
   const handleDownloadPDF = async () => {
     if (!billRef.current) {
-      toast("Bill load nahi hua", "error");
+      toast("Bill load nahi hui", "error");
       return;
     }
     setExporting(true);
     try {
-      await billElementToPDF(billRef.current, `${bill.billType}-${bill.billId}.pdf`);
-      toast("PDF download ho gayi", "success");
+      const filename = `${bill.billType}-${bill.billId}.pdf`;
+      const blob = await billElementToPDF(billRef.current, filename);
+      await archiveBillOnCloudinary(dispatchMongoId, blob, filename, "bill-pdf");
+      toast("PDF download + Cloudinary par save ho gayi", "success");
     } catch (err) {
       console.error(err);
       toast("PDF download fail — dubara try karein", "error");
@@ -45,7 +71,7 @@ export function BillExportActions({
 
   const handleWhatsApp = async () => {
     if (!billRef.current) {
-      toast("Bill load nahi hua", "error");
+      toast("Bill load nahi hui", "error");
       return;
     }
     setExporting(true);
@@ -59,13 +85,17 @@ export function BillExportActions({
         pending: bill.pending,
         paymentMode: bill.paymentMode,
       });
+      const imageFilename = `${bill.billId}-bill.png`;
+      const imageBlob = await billElementToImage(billRef.current);
+      await archiveBillOnCloudinary(dispatchMongoId, imageBlob, imageFilename, "bill-image");
       await shareBillImageWhatsApp(
         billRef.current,
         whatsappNumber,
         msg,
-        `${bill.billId}-bill.png`
+        imageFilename,
+        imageBlob
       );
-      toast("Bill image download + WhatsApp open ho gaya", "success");
+      toast("Bill Cloudinary par save + WhatsApp open ho gaya", "success");
     } catch (err) {
       console.error(err);
       toast("WhatsApp share fail — dubara try karein", "error");

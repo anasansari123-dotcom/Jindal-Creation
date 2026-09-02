@@ -77,6 +77,7 @@ export interface BillData {
   paymentMode?: string;
   salespersonName: string;
   notes?: string;
+  loadPhotoUrl?: string;
 }
 
 const rootStyle: CSSProperties = {
@@ -280,7 +281,38 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
         <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 8 }}>
           <tbody>
             <tr>
-              <td style={{ padding: 0, verticalAlign: "top" }} />
+              <td style={{ padding: "0 12px 0 0", verticalAlign: "top", width: "auto" }}>
+                {bill.loadPhotoUrl ? (
+                  <div style={{ maxWidth: 200 }}>
+                    <p
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: C.navy,
+                        marginBottom: 4,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      Gadi Me Maal Load Photo
+                    </p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={bill.loadPhotoUrl}
+                      alt="Gadi me maal load"
+                      crossOrigin="anonymous"
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        maxWidth: 200,
+                        maxHeight: 130,
+                        objectFit: "contain",
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 4,
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </td>
               <td style={{ padding: 0, width: 320, verticalAlign: "top" }}>
                 <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
                   <tbody>

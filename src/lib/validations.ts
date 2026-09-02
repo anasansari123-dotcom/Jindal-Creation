@@ -149,6 +149,7 @@ export const settingsSchema = z.object({
   whatsappNumber: z.string().optional(),
   companyName: z.string().optional(),
   companyTagline: z.string().optional(),
+  logoUrl: z.string().url().optional().or(z.literal("")),
   categories: z.array(z.string()).optional(),
 });
 

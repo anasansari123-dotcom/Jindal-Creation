@@ -58,6 +58,15 @@ export interface IDispatch extends Document {
   verifiedByName: string;
   salespersonName: string;
   notes?: string;
+  /** Gadi / vehicle load photo — Cloudinary URL, shown on Final Bill */
+  loadPhotoUrl?: string;
+  loadPhotoPublicId?: string;
+  /** Archived bill PDF on Cloudinary */
+  billPdfUrl?: string;
+  billPdfPublicId?: string;
+  /** Archived bill PNG (WhatsApp share) on Cloudinary */
+  billImageUrl?: string;
+  billImagePublicId?: string;
   finalBillId?: string;
   convertedAt?: Date;
   statusHistory?: Array<{
@@ -124,6 +133,12 @@ const DispatchSchema = new Schema<IDispatch>(
     verifiedByName: { type: String, required: true },
     salespersonName: { type: String, required: true },
     notes: { type: String },
+    loadPhotoUrl: { type: String },
+    loadPhotoPublicId: { type: String },
+    billPdfUrl: { type: String },
+    billPdfPublicId: { type: String },
+    billImageUrl: { type: String },
+    billImagePublicId: { type: String },
     finalBillId: { type: String },
     convertedAt: { type: Date },
     statusHistory: {

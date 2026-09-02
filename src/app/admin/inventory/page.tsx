@@ -21,6 +21,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { stockAdjustmentSchema } from "@/lib/validations";
 import { formatDateTime, formatBoxPieces } from "@/lib/utils";
 import { generateInventoryPDF, downloadPDF } from "@/lib/pdf";
+import { uploadToCloudinary } from "@/lib/cloudinary-upload-client";
 import { formatAvailableStockFromPieces } from "@/lib/stock-display";
 import { StockInDialog, type StockInProduct } from "@/components/stock-in-dialog";
 import { z } from "zod";
@@ -193,8 +194,21 @@ export default function InventoryPage() {
         generatedAt: new Date(),
       });
       const dateStamp = new Date().toISOString().slice(0, 10);
-      downloadPDF(doc, `Jindal-Creation-Inventory-${dateStamp}.pdf`);
-      toast(`${items.length} products ka stock PDF download ho gaya`, "success");
+      const filename = `Jindal-Creation-Inventory-${dateStamp}.pdf`;
+      downloadPDF(doc, filename);
+      try {
+        const blob = doc.output("blob");
+        await uploadToCloudinary({
+          file: blob,
+          filename,
+          category: "inventory-pdf",
+          ref: dateStamp,
+          mimeType: "application/pdf",
+        });
+        toast(`${items.length} products — PDF download + Cloudinary par save`, "success");
+      } catch {
+        toast(`${items.length} products ka stock PDF download ho gaya`, "success");
+      }
     } catch {
       toast("PDF export fail — dubara try karein", "error");
     } finally {

@@ -224,6 +224,9 @@ export async function PUT(
     dispatch.salespersonName =
       parsed.data.salespersonName?.trim() || dispatch.salespersonName || auth.user.name;
     dispatch.notes = parsed.data.notes;
+    if (parsed.data.loadPhotoUrl !== undefined) {
+      dispatch.loadPhotoUrl = parsed.data.loadPhotoUrl ?? undefined;
+    }
 
     if (!dispatch.statusHistory) dispatch.statusHistory = [];
     dispatch.statusHistory.push({

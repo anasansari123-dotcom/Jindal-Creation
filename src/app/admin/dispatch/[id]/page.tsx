@@ -25,6 +25,9 @@ import {
   CheckCircle,
   Pencil,
   CalendarClock,
+  ExternalLink,
+  FileText,
+  ImageIcon,
 } from "lucide-react";
 import { advanceDueLabel, getAdvanceDueStatus, isAdvanceOrder } from "@/lib/advance-order";
 
@@ -58,6 +61,9 @@ interface DispatchBill {
   salespersonName: string;
   inventoryDeducted: boolean;
   notes?: string;
+  loadPhotoUrl?: string;
+  billPdfUrl?: string;
+  billImageUrl?: string;
   convertedAt?: string;
   statusHistory?: Array<{
     status: "PENDING" | "COMPLETED";
@@ -223,6 +229,22 @@ export default function DispatchBillDetailPage() {
         </CardContent>
       </Card>
 
+      {dispatch.billStatus === "FINAL" && dispatch.loadPhotoUrl && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Gadi Me Maal Load Photo</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={dispatch.loadPhotoUrl}
+              alt="Gadi me maal load"
+              className="max-w-full max-h-80 rounded-lg border object-contain"
+            />
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader><CardTitle>Order Status History</CardTitle></CardHeader>
         <CardContent className="space-y-3">
@@ -266,11 +288,39 @@ export default function DispatchBillDetailPage() {
               Final Bill ID: <strong>{dispatch.finalBillId}</strong> · Stock deduct ho chuka hai ✓
             </p>
           )}
+          {(dispatch.billPdfUrl || dispatch.billImageUrl) && (
+            <div className="flex flex-wrap gap-3 text-sm">
+              {dispatch.billPdfUrl && (
+                <a
+                  href={dispatch.billPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-navy hover:text-gold underline"
+                >
+                  <FileText className="h-4 w-4" />
+                  Cloudinary PDF
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {dispatch.billImageUrl && (
+                <a
+                  href={dispatch.billImageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-navy hover:text-gold underline"
+                >
+                  <ImageIcon className="h-4 w-4" />
+                  Cloudinary Bill Image
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap gap-3 items-center">
             <Button variant="outline" onClick={() => setShowPreview(!showPreview)}>
               {showPreview ? "Hide Preview" : "Show Bill Preview"}
             </Button>
-            <BillExportActions bill={billData} whatsappNumber={whatsappNumber} />
+            <BillExportActions bill={billData} dispatchMongoId={id} whatsappNumber={whatsappNumber} />
             {dispatch.billStatus === "DISPATCH" && !dispatch.inventoryDeducted && (
               <>
                 <Link href={`/admin/dispatch/${id}/edit`}>

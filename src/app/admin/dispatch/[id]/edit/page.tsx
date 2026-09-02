@@ -29,6 +29,7 @@ import {
 import { getBillPaymentDisplay } from "@/lib/bill-payment-display";
 import { AddBillProductsDialog } from "@/components/add-bill-products-dialog";
 import { BillFormItemsEditor } from "@/components/bill-form-items-editor";
+import { BillLoadPhotoUpload } from "@/components/bill-load-photo-upload";
 import {
   type BillItemRow,
   billItemRowHasQty,
@@ -168,6 +169,7 @@ function EditDispatchBillContent() {
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [salespersonName, setSalespersonName] = useState("");
   const [notes, setNotes] = useState("");
+  const [loadPhotoUrl, setLoadPhotoUrl] = useState("");
   const [items, setItems] = useState<BillItemRow[]>([emptyBillItemRow()]);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [bulkAddQuickCreate, setBulkAddQuickCreate] = useState(false);
@@ -241,6 +243,7 @@ function EditDispatchBillContent() {
       );
       setSalespersonName(dispatch.salespersonName || "");
       setNotes(dispatch.notes || "");
+      setLoadPhotoUrl(dispatch.loadPhotoUrl || "");
       setOriginalItems(dispatch.items || []);
       setItems(dispatchItemsToFormRows(dispatch.items || []));
 
@@ -396,6 +399,9 @@ function EditDispatchBillContent() {
           showPricing && advance > 0 ? normalizePaymentMode(paymentMode) : undefined,
         salespersonName: salespersonName.trim(),
         notes,
+        ...(showPricing
+          ? { loadPhotoUrl: loadPhotoUrl.trim() ? loadPhotoUrl.trim() : null }
+          : {}),
       };
 
       const res = await fetch(`/api/dispatch/${id}`, {
@@ -703,6 +709,12 @@ function EditDispatchBillContent() {
               <Label>Notes</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
+            <BillLoadPhotoUpload
+              dispatchId={id}
+              photoUrl={loadPhotoUrl}
+              onPhotoChange={setLoadPhotoUrl}
+              disabled={submitting}
+            />
           </CardContent>
         </Card>
         )}

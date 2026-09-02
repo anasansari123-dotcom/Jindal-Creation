@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "@/components/ui/toast";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { DEFAULT_WHATSAPP_NUMBER, PAYMENT_METHODS } from "@/lib/constants";
-import { ArrowLeft, Pencil, IndianRupee } from "lucide-react";
+import { ArrowLeft, Pencil, IndianRupee, Upload, FileText, ExternalLink } from "lucide-react";
 import { PaymentSummaryCard, SingleBillPaymentBox } from "@/components/payment-ledger";
 import { BillExportActions } from "@/components/bill-export-actions";
 import { BillItemsTable } from "@/components/bill-items-table";
@@ -86,7 +86,7 @@ interface PaymentRecord {
 }
 
 interface CustomerData {
-  customer: Record<string, string | number>;
+  customer: CustomerRecord;
   dispatches: DispatchRecord[];
   finalBills: DispatchRecord[];
   confirmBills: Array<Record<string, unknown>>;
@@ -106,6 +106,32 @@ interface CustomerData {
   };
 }
 
+interface CustomerDocument {
+  label: string;
+  url: string;
+  publicId: string;
+  uploadedAt: string;
+}
+
+interface CustomerRecord {
+  _id?: string;
+  customerId?: string;
+  name?: string;
+  companyName?: string;
+  phone?: string;
+  whatsappNumber?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  gstNumber?: string;
+  notes?: string;
+  creditBalance?: number;
+  documents?: CustomerDocument[];
+  [key: string]: unknown;
+}
+
 export default function CustomerDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -122,6 +148,8 @@ export default function CustomerDetailPage() {
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [editPaymentAmount, setEditPaymentAmount] = useState("");
   const [editPayMethod, setEditPayMethod] = useState("Cash");
+  const [docUploading, setDocUploading] = useState(false);
+  const [docLabel, setDocLabel] = useState("GST Certificate");
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -244,6 +272,31 @@ export default function CustomerDetailPage() {
     }
   };
 
+  const handleDocumentUpload = async (file: File | null) => {
+    if (!file) return;
+    setDocUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("label", docLabel.trim() || "Account Document");
+      const res = await fetch(`/api/customers/${id}/documents`, {
+        method: "POST",
+        body: formData,
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        toast(result.error || "Upload fail", "error");
+        return;
+      }
+      toast("Document Cloudinary par save ho gaya", "success");
+      fetchData();
+    } catch {
+      toast("Upload fail — dubara try karein", "error");
+    } finally {
+      setDocUploading(false);
+    }
+  };
+
   if (loading) return <PageLoader />;
   if (notFound || !data?.customer) {
     return (
@@ -260,6 +313,7 @@ export default function CustomerDetailPage() {
   }
 
   const { customer, dispatches, finalBills, paymentLedger, payments, stats, bills = [] } = data;
+  const accountDocuments = customer.documents ?? [];
 
   const editPayPreview =
     editPaymentAmount && parseFloat(editPaymentAmount) > 0
@@ -316,7 +370,7 @@ export default function CustomerDetailPage() {
             {isFinal && " · Stock Deducted ✓"}
           </p>
         </div>
-        <BillExportActions bill={dispatchToBill(d)} whatsappNumber={whatsappNumber} compact />
+        <BillExportActions bill={dispatchToBill(d)} dispatchMongoId={d._id} whatsappNumber={whatsappNumber} compact />
       </div>
       <SingleBillPaymentBox
         bill={{
@@ -432,6 +486,67 @@ export default function CustomerDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Account Documents (Cloudinary)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">
+            GST certificate, ID proof, agreement — sab files Cloudinary par save hongi.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+            <div className="flex-1">
+              <Label>Document Label</Label>
+              <Input
+                value={docLabel}
+                onChange={(e) => setDocLabel(e.target.value)}
+                placeholder="e.g. GST Certificate"
+              />
+            </div>
+            <label className="inline-flex items-center justify-center gap-2 cursor-pointer rounded-md border border-navy/20 px-4 py-2 text-sm font-medium text-navy hover:bg-navy/5">
+              <Upload className="h-4 w-4" />
+              {docUploading ? "Uploading..." : "Upload PDF / Image"}
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                disabled={docUploading}
+                onChange={(e) => handleDocumentUpload(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          </div>
+          {accountDocuments.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">Abhi koi document upload nahi hui</p>
+          ) : (
+            <div className="space-y-2">
+              {accountDocuments.map((doc, i) => (
+                <div
+                  key={doc.publicId || i}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-gold shrink-0" />
+                    <div>
+                      <p className="font-medium text-navy">{doc.label}</p>
+                      <p className="text-xs text-gray-500">{formatDateTime(doc.uploadedAt)}</p>
+                    </div>
+                  </div>
+                  <a
+                    href={doc.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-gold hover:underline"
+                  >
+                    Open
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Dispatch Bills */}
       <Card>

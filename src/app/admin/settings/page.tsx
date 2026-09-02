@@ -8,14 +8,17 @@ import { Label } from "@/components/ui/label";
 import { PageLoader } from "@/components/ui/loading";
 import { Pagination } from "@/components/ui/pagination";
 import { toast } from "@/components/ui/toast";
-import { Plus, Trash2, Save } from "lucide-react";
+import { Plus, Trash2, Save, Upload } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { DEFAULT_CATEGORIES } from "@/lib/constants";
+import { uploadToCloudinary } from "@/lib/cloudinary-upload-client";
+import Image from "next/image";
 
 interface Settings {
   whatsappNumber: string;
   companyName: string;
   companyTagline: string;
+  logoUrl?: string;
   categories: string[];
 }
 
@@ -41,6 +44,7 @@ export default function SettingsPage() {
   const [logTotalPages, setLogTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   const isMainAdmin = currentUser?.role === "MAIN_ADMIN";
 
@@ -104,6 +108,25 @@ export default function SettingsPage() {
     setSettings((s) => ({ ...s, categories: s.categories.filter((c) => c !== cat) }));
   };
 
+  const handleLogoUpload = async (file: File | null) => {
+    if (!file || !isMainAdmin) return;
+    setLogoUploading(true);
+    try {
+      const uploaded = await uploadToCloudinary({
+        file,
+        filename: file.name || "logo.png",
+        category: "logo",
+        ref: "company",
+      });
+      setSettings((s) => ({ ...s, logoUrl: uploaded.url }));
+      toast("Logo Cloudinary par upload ho gaya — Save Settings dabayein", "success");
+    } catch {
+      toast("Logo upload fail", "error");
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
   if (loading) return <PageLoader />;
 
   return (
@@ -149,6 +172,43 @@ export default function SettingsPage() {
                 disabled={!isMainAdmin}
               />
               <p className="text-xs text-gray-400 mt-1">Country code, no + or spaces</p>
+            </div>
+            <div>
+              <Label>Company Logo (Cloudinary)</Label>
+              {settings.logoUrl ? (
+                <div className="mt-2 flex items-center gap-4">
+                  <Image
+                    src={settings.logoUrl}
+                    alt="Company logo"
+                    width={80}
+                    height={80}
+                    className="h-16 w-16 object-contain border rounded-lg"
+                    unoptimized
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!isMainAdmin || logoUploading}
+                    onClick={() => setSettings((s) => ({ ...s, logoUrl: "" }))}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ) : null}
+              {isMainAdmin && (
+                <label className="mt-2 inline-flex items-center gap-2 cursor-pointer text-sm text-navy hover:text-gold">
+                  <Upload className="h-4 w-4" />
+                  {logoUploading ? "Uploading..." : "Logo upload karein"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={logoUploading}
+                    onChange={(e) => handleLogoUpload(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -127,9 +127,10 @@ export async function shareBillImageWhatsApp(
   element: HTMLElement,
   phone: string,
   message: string,
-  filename = "bill.png"
+  filename = "bill.png",
+  imageBlob?: Blob
 ) {
-  const blob = await billElementToImage(element);
+  const blob = imageBlob ?? (await billElementToImage(element));
   const file = new File([blob], filename, { type: "image/png" });
 
   if (typeof navigator !== "undefined" && navigator.share && navigator.canShare?.({ files: [file] })) {
@@ -146,7 +147,7 @@ export async function shareBillImageWhatsApp(
   );
 }
 
-export async function billElementToPDF(element: HTMLElement, filename: string) {
+export async function billElementToPdfBlob(element: HTMLElement): Promise<Blob> {
   const canvas = await captureBillCanvas(element);
   const imgData = canvas.toDataURL("image/png", 1.0);
   const pdf = new jsPDF("p", "mm", "a4");
@@ -172,7 +173,13 @@ export async function billElementToPDF(element: HTMLElement, filename: string) {
     heightLeft -= contentHeight;
   }
 
-  pdf.save(filename);
+  return pdf.output("blob");
+}
+
+export async function billElementToPDF(element: HTMLElement, filename: string) {
+  const blob = await billElementToPdfBlob(element);
+  downloadBlob(blob, filename);
+  return blob;
 }
 
 export function generateBillWhatsAppMessage(bill: {
@@ -237,6 +244,7 @@ export function dispatchToBillData(dispatch: {
   paymentMode?: string;
   salespersonName: string;
   notes?: string;
+  loadPhotoUrl?: string;
 }): import("@/components/bill-preview").BillData {
   const enriched = enrichDispatchBill(dispatch);
   return {
@@ -283,5 +291,6 @@ export function dispatchToBillData(dispatch: {
     paymentMode: enriched.paymentMode,
     salespersonName: enriched.salespersonName,
     notes: enriched.notes,
+    loadPhotoUrl: dispatch.loadPhotoUrl,
   };
 }

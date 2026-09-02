@@ -15,10 +15,11 @@ export async function GET() {
     const whatsappNumber = await getSetting("whatsappNumber", process.env.WHATSAPP_NUMBER || "");
     const companyName = await getSetting("companyName", BRAND.name);
     const companyTagline = await getSetting("companyTagline", BRAND.tagline);
+    const logoUrl = await getSetting("logoUrl", "");
     const categories = await getSetting("categories", DEFAULT_CATEGORIES);
 
     return apiSuccess({
-      settings: { whatsappNumber, companyName, companyTagline, categories },
+      settings: { whatsappNumber, companyName, companyTagline, logoUrl, categories },
     });
   } catch (error) {
     return apiError(error);
@@ -48,6 +49,9 @@ export async function PUT(request: NextRequest) {
     }
     if (parsed.data.companyTagline !== undefined) {
       await setSetting("companyTagline", parsed.data.companyTagline);
+    }
+    if (parsed.data.logoUrl !== undefined) {
+      await setSetting("logoUrl", parsed.data.logoUrl || "");
     }
     if (parsed.data.categories !== undefined) {
       await setSetting("categories", parsed.data.categories);

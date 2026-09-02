@@ -252,6 +252,7 @@ export default function DispatchPage() {
                         <td className="py-3">
                           <BillExportActions
                             bill={dispatchToBillData(d)}
+                            dispatchMongoId={d._id}
                             whatsappNumber={whatsappNumber}
                             compact
                           />

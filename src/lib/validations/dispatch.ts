@@ -77,6 +77,11 @@ export const dispatchBillSchema = z.object({
     z.string().min(1, "Bill banane wale ka naam required hai").optional()
   ),
   notes: z.string().optional(),
+  /** Cloudinary URL — gadi load photo for Final Bill; null/empty clears photo */
+  loadPhotoUrl: z.preprocess(
+    (v) => (v === "" ? null : v === undefined ? undefined : v),
+    z.union([z.string().url(), z.null()]).optional()
+  ),
   /** When true, customer's old bill pending is added to this bill */
   includeCarriedForward: z.boolean().optional().default(true),
 }).superRefine((data, ctx) => {
