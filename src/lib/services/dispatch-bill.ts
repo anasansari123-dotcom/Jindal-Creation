@@ -205,6 +205,16 @@ export async function finalizeDispatchBill(
     }
 
     const convertedAt = dispatch.convertedAt || new Date();
+    if (!isRetry) {
+      if (dispatch.billPdfUrl && !dispatch.dispatchBillPdfUrl) {
+        dispatch.dispatchBillPdfUrl = dispatch.billPdfUrl;
+        dispatch.dispatchBillPdfPublicId = dispatch.billPdfPublicId;
+      }
+      if (dispatch.billImageUrl && !dispatch.dispatchBillImageUrl) {
+        dispatch.dispatchBillImageUrl = dispatch.billImageUrl;
+        dispatch.dispatchBillImagePublicId = dispatch.billImagePublicId;
+      }
+    }
     dispatch.billStatus = "FINAL";
     dispatch.finalBillId = finalBillId;
     dispatch.convertedAt = convertedAt;

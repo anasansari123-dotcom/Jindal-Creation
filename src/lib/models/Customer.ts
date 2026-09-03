@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document, Model } from "mongoose";
+import mongoose, { Schema, Document, Model, Types } from "mongoose";
 
 export interface ICustomer extends Document {
   customerId: string;
@@ -20,6 +20,16 @@ export interface ICustomer extends Document {
     label: string;
     url: string;
     publicId: string;
+    uploadedAt: Date;
+  }>;
+  /** Saved bill PDF / photo from Cloudinary */
+  billFiles?: Array<{
+    label: string;
+    url: string;
+    publicId: string;
+    fileType: "bill-pdf" | "bill-image" | "load-photo" | "dispatch-bill-pdf" | "dispatch-bill-image";
+    billId: string;
+    dispatchMongoId: Types.ObjectId;
     uploadedAt: Date;
   }>;
   createdAt: Date;
@@ -47,6 +57,24 @@ const CustomerSchema = new Schema<ICustomer>(
           label: { type: String, required: true },
           url: { type: String, required: true },
           publicId: { type: String, required: true },
+          uploadedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
+    billFiles: {
+      type: [
+        {
+          label: { type: String, required: true },
+          url: { type: String, required: true },
+          publicId: { type: String, required: true },
+          fileType: {
+            type: String,
+            enum: ["bill-pdf", "bill-image", "load-photo", "dispatch-bill-pdf", "dispatch-bill-image"],
+            required: true,
+          },
+          billId: { type: String, required: true },
+          dispatchMongoId: { type: Schema.Types.ObjectId, ref: "Dispatch", required: true },
           uploadedAt: { type: Date, default: Date.now },
         },
       ],

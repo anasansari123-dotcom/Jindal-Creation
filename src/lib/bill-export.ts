@@ -126,7 +126,6 @@ export async function downloadBillImage(element: HTMLElement, filename: string) 
 export async function shareBillImageWhatsApp(
   element: HTMLElement,
   phone: string,
-  message: string,
   filename = "bill.png",
   imageBlob?: Blob
 ) {
@@ -134,17 +133,14 @@ export async function shareBillImageWhatsApp(
   const file = new File([blob], filename, { type: "image/png" });
 
   if (typeof navigator !== "undefined" && navigator.share && navigator.canShare?.({ files: [file] })) {
-    await navigator.share({ files: [file], text: message, title: "Bill" });
+    // Sirf image — text alag pass karne par WhatsApp do messages bhejta hai
+    await navigator.share({ files: [file] });
     return;
   }
 
   downloadBlob(blob, filename);
   const cleanPhone = phone.replace(/\D/g, "");
-  const fullMessage = `${message}\n\n(Bill image download ho gayi hai — WhatsApp me attach karein)`;
-  window.open(
-    `https://wa.me/${cleanPhone}?text=${encodeURIComponent(fullMessage)}`,
-    "_blank"
-  );
+  window.open(`https://wa.me/${cleanPhone}`, "_blank");
 }
 
 export async function billElementToPdfBlob(element: HTMLElement): Promise<Blob> {
@@ -292,5 +288,17 @@ export function dispatchToBillData(dispatch: {
     salespersonName: enriched.salespersonName,
     notes: enriched.notes,
     loadPhotoUrl: dispatch.loadPhotoUrl,
+  };
+}
+
+/** Dispatch bill view — qty/products only, even after final conversion */
+export function toDispatchBillData(
+  dispatch: Parameters<typeof dispatchToBillData>[0]
+): import("@/components/bill-preview").BillData {
+  const bill = dispatchToBillData(dispatch);
+  return {
+    ...bill,
+    billId: dispatch.dispatchId,
+    billType: "DISPATCH",
   };
 }

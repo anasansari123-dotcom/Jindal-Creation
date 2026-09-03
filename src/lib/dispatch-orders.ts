@@ -1,4 +1,11 @@
 import type { IDispatch } from "@/lib/models/Dispatch";
+import {
+  endOfDay,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  subDays,
+} from "date-fns";
 
 export type OrderDisplayStatus = "PENDING" | "COMPLETED";
 
@@ -156,36 +163,34 @@ export function dayRange(dateStr: string) {
 export type OrderPeriod = "today" | "yesterday" | "week" | "month" | "custom";
 
 export function periodRange(period: OrderPeriod, customDate?: string) {
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const end = endOfDay(now);
 
   switch (period) {
     case "yesterday": {
-      start.setDate(start.getDate() - 1);
-      end.setDate(end.getDate() - 1);
-      end.setHours(23, 59, 59, 999);
-      return { start, end, label: "Kal" };
+      const y = subDays(now, 1);
+      return { start: startOfDay(y), end: endOfDay(y), label: "Kal" };
     }
     case "week": {
-      start.setDate(start.getDate() - 6);
-      return { start, end, label: "Is Week (7 din)" };
+      const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+      const monthStart = startOfMonth(now);
+      // Is hafte ka Mon agar pichle mahine me ho to is mahine ke 1 se start karo
+      const start = weekStart < monthStart ? monthStart : weekStart;
+      return { start, end, label: "Is Week" };
     }
     case "month": {
-      start.setDate(1);
-      return { start, end, label: "Is Month" };
+      return { start: startOfMonth(now), end, label: "Is Month" };
     }
     case "custom": {
       if (customDate) {
         const range = dayRange(customDate);
         return { ...range, label: formatDayLabel(customDate) };
       }
-      return { start, end, label: "Aaj" };
+      return { start: startOfDay(now), end, label: "Aaj" };
     }
     case "today":
     default:
-      return { start, end, label: "Aaj" };
+      return { start: startOfDay(now), end, label: "Aaj" };
   }
 }
 

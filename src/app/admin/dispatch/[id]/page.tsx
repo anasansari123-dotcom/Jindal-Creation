@@ -9,7 +9,7 @@ import { PageLoader, EmptyState } from "@/components/ui/loading";
 import { StatusBadge } from "@/components/ui/badge";
 import { BillPreview, type BillData } from "@/components/bill-preview";
 import { BillExportActions } from "@/components/bill-export-actions";
-import { dispatchToBillData } from "@/lib/bill-export";
+import { dispatchToBillData, toDispatchBillData } from "@/lib/bill-export";
 import { DEFAULT_WHATSAPP_NUMBER } from "@/lib/constants";
 import { SingleBillPaymentBox } from "@/components/payment-ledger";
 import { formatDate, formatCurrency, formatDateTime } from "@/lib/utils";
@@ -28,6 +28,7 @@ import {
   ExternalLink,
   FileText,
   ImageIcon,
+  RotateCcw,
 } from "lucide-react";
 import { advanceDueLabel, getAdvanceDueStatus, isAdvanceOrder } from "@/lib/advance-order";
 
@@ -64,6 +65,9 @@ interface DispatchBill {
   loadPhotoUrl?: string;
   billPdfUrl?: string;
   billImageUrl?: string;
+  dispatchBillPdfUrl?: string;
+  dispatchBillImageUrl?: string;
+  returnedAmount?: number;
   convertedAt?: string;
   statusHistory?: Array<{
     status: "PENDING" | "COMPLETED";
@@ -83,6 +87,7 @@ export default function DispatchBillDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [whatsappNumber, setWhatsappNumber] = useState(DEFAULT_WHATSAPP_NUMBER);
   const [showPreview, setShowPreview] = useState(false);
+  const [showDispatchPreview, setShowDispatchPreview] = useState(false);
 
   const fetchDispatch = () => {
     setLoading(true);
@@ -123,6 +128,7 @@ export default function DispatchBillDetailPage() {
   }
 
   const billData = dispatchToBillData(dispatch);
+  const dispatchBillData = toDispatchBillData(dispatch);
   const payment = getBillPaymentDisplay(dispatch);
   const orderHistory = buildStatusHistory(dispatch);
   const advanceDue = getAdvanceDueStatus(dispatch.readyByDate, dispatch.billStatus);
@@ -286,9 +292,14 @@ export default function DispatchBillDetailPage() {
           {dispatch.billStatus === "FINAL" && dispatch.finalBillId && (
             <p className="text-sm text-green-700">
               Final Bill ID: <strong>{dispatch.finalBillId}</strong> · Stock deduct ho chuka hai ✓
+              {(dispatch.returnedAmount || 0) > 0 && (
+                <span className="block text-amber-700 mt-1">
+                  Returns: {formatCurrency(dispatch.returnedAmount!)} processed
+                </span>
+              )}
             </p>
           )}
-          {(dispatch.billPdfUrl || dispatch.billImageUrl) && (
+          {(dispatch.billPdfUrl || dispatch.billImageUrl || dispatch.dispatchBillPdfUrl || dispatch.dispatchBillImageUrl) && (
             <div className="flex flex-wrap gap-3 text-sm">
               {dispatch.billPdfUrl && (
                 <a
@@ -298,7 +309,7 @@ export default function DispatchBillDetailPage() {
                   className="inline-flex items-center gap-1.5 text-navy hover:text-gold underline"
                 >
                   <FileText className="h-4 w-4" />
-                  Cloudinary PDF
+                  Final Bill PDF
                   <ExternalLink className="h-3 w-3" />
                 </a>
               )}
@@ -310,7 +321,31 @@ export default function DispatchBillDetailPage() {
                   className="inline-flex items-center gap-1.5 text-navy hover:text-gold underline"
                 >
                   <ImageIcon className="h-4 w-4" />
-                  Cloudinary Bill Image
+                  Final Bill Image
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {dispatch.dispatchBillPdfUrl && (
+                <a
+                  href={dispatch.dispatchBillPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-navy hover:text-gold underline"
+                >
+                  <FileText className="h-4 w-4" />
+                  Dispatch Bill PDF
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {dispatch.dispatchBillImageUrl && (
+                <a
+                  href={dispatch.dispatchBillImageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-navy hover:text-gold underline"
+                >
+                  <ImageIcon className="h-4 w-4" />
+                  Dispatch Bill Image
                   <ExternalLink className="h-3 w-3" />
                 </a>
               )}
@@ -318,7 +353,7 @@ export default function DispatchBillDetailPage() {
           )}
           <div className="flex flex-wrap gap-3 items-center">
             <Button variant="outline" onClick={() => setShowPreview(!showPreview)}>
-              {showPreview ? "Hide Preview" : "Show Bill Preview"}
+              {showPreview ? "Hide Preview" : dispatch.billStatus === "FINAL" ? "Show Final Preview" : "Show Bill Preview"}
             </Button>
             <BillExportActions bill={billData} dispatchMongoId={id} whatsappNumber={whatsappNumber} />
             {dispatch.billStatus === "DISPATCH" && !dispatch.inventoryDeducted && (
@@ -336,17 +371,50 @@ export default function DispatchBillDetailPage() {
               </>
             )}
             {dispatch.billStatus === "FINAL" && (
-              <Link href={`/admin/dispatch/${id}/edit`}>
-                <Button variant="outline">
-                  <Pencil className="h-4 w-4" /> Edit Final Bill
-                </Button>
-              </Link>
+              <>
+                <Link href={`/admin/dispatch/${id}/edit`}>
+                  <Button variant="outline">
+                    <Pencil className="h-4 w-4" /> Edit Final Bill
+                  </Button>
+                </Link>
+                <Link href={`/admin/returns/new?dispatchId=${id}`}>
+                  <Button variant="outline" className="border-amber-300 text-amber-800 hover:bg-amber-50">
+                    <RotateCcw className="h-4 w-4" /> Product Return
+                  </Button>
+                </Link>
+              </>
             )}
           </div>
+
+          {dispatch.billStatus === "FINAL" && (
+            <div className="border-t border-navy/10 pt-4 space-y-3">
+              <div>
+                <p className="font-medium text-navy">Original Dispatch Bill</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Final bill ke baad bhi dispatch bill (sirf products / qty, bina rate) dekh aur download kar sakte hain.
+                  Dispatch ID: <strong>{dispatch.dispatchId}</strong>
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3 items-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDispatchPreview(!showDispatchPreview)}
+                >
+                  {showDispatchPreview ? "Hide Dispatch Preview" : "Show Dispatch Preview"}
+                </Button>
+                <BillExportActions
+                  bill={dispatchBillData}
+                  dispatchMongoId={id}
+                  whatsappNumber={whatsappNumber}
+                  variant="dispatch"
+                />
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Bill preview for export — always in DOM, visible when preview toggled */}
+      {/* Final bill preview for export */}
       <div
         className={
           showPreview
@@ -357,6 +425,19 @@ export default function DispatchBillDetailPage() {
       >
         <BillPreview ref={billRef} bill={billData} />
       </div>
+
+      {dispatch.billStatus === "FINAL" && (
+        <div
+          className={
+            showDispatchPreview
+              ? "overflow-x-auto border rounded-xl border-blue-200"
+              : "fixed -left-[10000px] top-0 w-[794px] pointer-events-none -z-10"
+          }
+          aria-hidden={!showDispatchPreview}
+        >
+          <BillPreview bill={dispatchBillData} />
+        </div>
+      )}
     </div>
   );
 }

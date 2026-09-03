@@ -9,7 +9,6 @@ import {
   billElementToPDF,
   billElementToImage,
   shareBillImageWhatsApp,
-  generateBillWhatsAppMessage,
 } from "@/lib/bill-export";
 import { uploadDispatchFile } from "@/lib/cloudinary-upload-client";
 import { Download, MessageCircle } from "lucide-react";
@@ -19,13 +18,15 @@ interface BillExportActionsProps {
   dispatchMongoId?: string;
   whatsappNumber?: string;
   compact?: boolean;
+  /** Final bill export (default) or original dispatch bill */
+  variant?: "final" | "dispatch";
 }
 
 async function archiveBillOnCloudinary(
   dispatchMongoId: string | undefined,
   file: Blob,
   filename: string,
-  fileType: "bill-pdf" | "bill-image"
+  fileType: "bill-pdf" | "bill-image" | "dispatch-bill-pdf" | "dispatch-bill-image"
 ) {
   if (!dispatchMongoId) return;
   try {
@@ -46,9 +47,13 @@ export function BillExportActions({
   dispatchMongoId,
   whatsappNumber = DEFAULT_WHATSAPP_NUMBER,
   compact = false,
+  variant = "final",
 }: BillExportActionsProps) {
   const billRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
+  const isDispatch = variant === "dispatch";
+  const pdfFileType = isDispatch ? "dispatch-bill-pdf" : "bill-pdf";
+  const imageFileType = isDispatch ? "dispatch-bill-image" : "bill-image";
 
   const handleDownloadPDF = async () => {
     if (!billRef.current) {
@@ -57,10 +62,15 @@ export function BillExportActions({
     }
     setExporting(true);
     try {
-      const filename = `${bill.billType}-${bill.billId}.pdf`;
+      const filename = `${isDispatch ? "dispatch" : bill.billType}-${bill.billId}.pdf`;
       const blob = await billElementToPDF(billRef.current, filename);
-      await archiveBillOnCloudinary(dispatchMongoId, blob, filename, "bill-pdf");
-      toast("PDF download + Cloudinary par save ho gayi", "success");
+      await archiveBillOnCloudinary(dispatchMongoId, blob, filename, pdfFileType);
+      toast(
+        isDispatch
+          ? "Dispatch bill PDF download + Cloudinary par save ho gayi"
+          : "PDF download + Cloudinary par save ho gayi",
+        "success"
+      );
     } catch (err) {
       console.error(err);
       toast("PDF download fail — dubara try karein", "error");
@@ -76,26 +86,16 @@ export function BillExportActions({
     }
     setExporting(true);
     try {
-      const msg = generateBillWhatsAppMessage({
-        billId: bill.billId,
-        billType: bill.billType,
-        customerName: bill.customerName,
-        total: bill.total,
-        advance: bill.advance,
-        pending: bill.pending,
-        paymentMode: bill.paymentMode,
-      });
-      const imageFilename = `${bill.billId}-bill.png`;
+      const imageFilename = `${bill.billId}-${isDispatch ? "dispatch" : "bill"}.png`;
       const imageBlob = await billElementToImage(billRef.current);
-      await archiveBillOnCloudinary(dispatchMongoId, imageBlob, imageFilename, "bill-image");
+      await archiveBillOnCloudinary(dispatchMongoId, imageBlob, imageFilename, imageFileType);
       await shareBillImageWhatsApp(
         billRef.current,
         whatsappNumber,
-        msg,
         imageFilename,
         imageBlob
       );
-      toast("Bill Cloudinary par save + WhatsApp open ho gaya", "success");
+      toast("Bill image WhatsApp par share karein (sirf photo jayegi)", "success");
     } catch (err) {
       console.error(err);
       toast("WhatsApp share fail — dubara try karein", "error");
@@ -112,20 +112,30 @@ export function BillExportActions({
           size={compact ? "sm" : "default"}
           onClick={handleDownloadPDF}
           disabled={exporting}
-          title="Download PDF"
+          title={isDispatch ? "Download Dispatch PDF" : "Download PDF"}
         >
           <Download className="h-4 w-4" />
-          {!compact && (exporting ? " Generating..." : " Download PDF")}
+          {!compact &&
+            (exporting
+              ? " Generating..."
+              : isDispatch
+                ? " Download Dispatch PDF"
+                : " Download PDF")}
         </Button>
         <Button
           variant={compact ? "ghost" : "gold"}
           size={compact ? "sm" : "default"}
           onClick={handleWhatsApp}
           disabled={exporting}
-          title="Send on WhatsApp"
+          title={isDispatch ? "Send Dispatch Bill on WhatsApp" : "Send on WhatsApp"}
         >
           <MessageCircle className="h-4 w-4" />
-          {!compact && (exporting ? " Please wait..." : " Send on WhatsApp")}
+          {!compact &&
+            (exporting
+              ? " Please wait..."
+              : isDispatch
+                ? " Dispatch WhatsApp"
+                : " Send on WhatsApp")}
         </Button>
       </div>
 

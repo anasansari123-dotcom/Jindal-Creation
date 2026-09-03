@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "@/components/ui/toast";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { DEFAULT_WHATSAPP_NUMBER, PAYMENT_METHODS } from "@/lib/constants";
-import { ArrowLeft, Pencil, IndianRupee, Upload, FileText, ExternalLink } from "lucide-react";
+import { ArrowLeft, Pencil, IndianRupee, Upload, FileText, ExternalLink, ImageIcon, Download } from "lucide-react";
 import { PaymentSummaryCard, SingleBillPaymentBox } from "@/components/payment-ledger";
 import { BillExportActions } from "@/components/bill-export-actions";
 import { BillItemsTable } from "@/components/bill-items-table";
@@ -85,6 +85,23 @@ interface PaymentRecord {
   notes?: string;
 }
 
+interface CustomerBillFileEntry {
+  type: "bill-pdf" | "bill-image" | "load-photo" | "dispatch-bill-pdf" | "dispatch-bill-image";
+  label: string;
+  url: string;
+  publicId?: string;
+}
+
+interface CustomerBillArchive {
+  billId: string;
+  displayBillId: string;
+  billStatus: "DISPATCH" | "FINAL";
+  dispatchMongoId: string;
+  dispatchDate: string;
+  total: number;
+  files: CustomerBillFileEntry[];
+}
+
 interface CustomerData {
   customer: CustomerRecord;
   dispatches: DispatchRecord[];
@@ -94,6 +111,7 @@ interface CustomerData {
   payments: PaymentRecord[];
   bills: CustomerBillEntry[];
   paymentLedger: PaymentSummary;
+  billArchives?: CustomerBillArchive[];
   stats: {
     totalPending: number;
     totalAdvance?: number;
@@ -312,7 +330,7 @@ export default function CustomerDetailPage() {
     );
   }
 
-  const { customer, dispatches, finalBills, paymentLedger, payments, stats, bills = [] } = data;
+  const { customer, dispatches, finalBills, paymentLedger, payments, stats, bills = [], billArchives = [] } = data;
   const accountDocuments = customer.documents ?? [];
 
   const editPayPreview =
@@ -486,6 +504,77 @@ export default function CustomerDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Saved Bills — PDF &amp; Photos (Cloudinary)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Jab bill Download PDF ya WhatsApp se share hoti hai, PDF aur photo is customer ke account me
+            Cloudinary par save ho jati hai — yahan se dubara download kar sakte hain.
+          </p>
+          {billArchives.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">
+              Abhi koi saved bill nahi — pehli baar PDF download ya WhatsApp share karein
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {billArchives.map((archive) => (
+                <div
+                  key={archive.dispatchMongoId}
+                  className="rounded-lg border p-4 space-y-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-navy">{archive.displayBillId}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {formatDate(archive.dispatchDate)} · {archive.billStatus === "FINAL" ? "Final Bill" : "Dispatch Bill"} ·{" "}
+                        {formatCurrency(archive.total)}
+                      </p>
+                    </div>
+                    <Link href={`/admin/dispatch/${archive.dispatchMongoId}`}>
+                      <Button variant="outline" size="sm">
+                        View Bill
+                      </Button>
+                    </Link>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {archive.files.map((file) => (
+                      <a
+                        key={`${archive.dispatchMongoId}-${file.type}`}
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download
+                        className="inline-flex items-center gap-1.5 rounded-md border border-navy/15 px-3 py-1.5 text-sm text-navy hover:bg-navy/5"
+                      >
+                        {file.type === "bill-pdf" || file.type === "dispatch-bill-pdf" ? (
+                          <FileText className="h-4 w-4 text-gold shrink-0" />
+                        ) : (
+                          <ImageIcon className="h-4 w-4 text-gold shrink-0" />
+                        )}
+                        <span>
+                          {file.type === "bill-pdf"
+                            ? "Download PDF"
+                            : file.type === "dispatch-bill-pdf"
+                              ? "Dispatch PDF"
+                              : file.type === "bill-image"
+                                ? "Download Photo"
+                                : file.type === "dispatch-bill-image"
+                                  ? "Dispatch Photo"
+                                  : "Load Photo"}
+                        </span>
+                        <Download className="h-3.5 w-3.5 opacity-60" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

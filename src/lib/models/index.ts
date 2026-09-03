@@ -8,3 +8,4 @@ export { Payment } from "./Payment";
 export { Dispatch } from "./Dispatch";
 export { ActivityLog } from "./ActivityLog";
 export { Settings } from "./Settings";
+export { ProductReturn } from "./ProductReturn";

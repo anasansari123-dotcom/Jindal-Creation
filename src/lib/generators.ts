@@ -1,5 +1,5 @@
 import { connectDB } from "@/lib/db/connect";
-import { Customer, Product, Order, Payment, Dispatch, ConfirmBill } from "@/lib/models";
+import { Customer, Product, Order, Payment, Dispatch, ConfirmBill, ProductReturn } from "@/lib/models";
 
 export async function generateCustomerId(): Promise<string> {
   await connectDB();
@@ -59,4 +59,14 @@ export async function generateConfirmBillId(): Promise<string> {
   if (!last) return "JC-CNF-0001";
   const num = parseInt(last.confirmBillId.replace("JC-CNF-", ""), 10);
   return `JC-CNF-${String(num + 1).padStart(4, "0")}`;
+}
+
+export async function generateReturnId(): Promise<string> {
+  await connectDB();
+  const last = await ProductReturn.findOne()
+    .sort({ returnId: -1 })
+    .select("returnId");
+  if (!last) return "JC-RTN-0001";
+  const num = parseInt(last.returnId.replace("JC-RTN-", ""), 10);
+  return `JC-RTN-${String(num + 1).padStart(4, "0")}`;
 }

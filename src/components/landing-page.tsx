@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { SeoFaqSection } from "@/components/seo-faq-section";
 import { BRAND, LOCAL_BUSINESS, DEFAULT_WHATSAPP_NUMBER, DEFAULT_WHATSAPP_DISPLAY } from "@/lib/constants";
 import { generateWhatsAppUrl } from "@/lib/utils";
 import { Package, LogIn, MapPin, Phone, MessageCircle, CheckCircle } from "lucide-react";
@@ -129,8 +128,6 @@ export function LandingPage() {
               </div>
             </div>
           </section>
-
-          <SeoFaqSection variant="dark" />
 
           <div className="pt-2">
             <Link

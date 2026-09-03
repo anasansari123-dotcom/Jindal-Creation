@@ -188,12 +188,20 @@ export default function OrdersPage() {
   const [periodLabel, setPeriodLabel] = useState("Aaj");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [period, setPeriod] = useState<OrderPeriod>("today");
   const [customDate, setCustomDate] = useState(todayStr());
-  const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+
+  const period = (() => {
+    const p = searchParams.get("period");
+    if (p && ["today", "yesterday", "week", "month", "custom"].includes(p)) {
+      return p as OrderPeriod;
+    }
+    return "today";
+  })();
+
+  const status = searchParams.get("status") || "";
+  const pageFromUrl = parseInt(searchParams.get("page") || "1", 10);
 
   const applyFilters = useCallback(
     (patch: Record<string, string | undefined>) => {
@@ -208,43 +216,48 @@ export default function OrdersPage() {
   );
 
   useEffect(() => {
-    const p = searchParams.get("period");
-    if (p && ["today", "yesterday", "week", "month", "custom"].includes(p)) {
-      setPeriod(p as OrderPeriod);
-    } else {
-      setPeriod("today");
-    }
-    setStatus(searchParams.get("status") || "");
     const d = searchParams.get("date");
     if (d) setCustomDate(d);
-    setPage(parseInt(searchParams.get("page") || "1", 10));
   }, [searchParams]);
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams({
-      search,
-      page: String(page),
-      period,
-    });
-    if (status) params.set("status", status);
-    if (period === "custom") params.set("date", customDate);
-
-    const res = await fetch(`/api/orders?${params}`);
-    const data = await res.json();
-    setOrders(data.orders || []);
-    setDailyGroups(data.dailyGroups || []);
-    setSummary(data.summary || null);
-    setPeriodLabel(data.periodLabel || "Aaj");
-    setTotalPages(data.pagination?.totalPages || 1);
-    setTotal(data.pagination?.total || 0);
-    setLoading(false);
-  }, [search, status, period, customDate, page]);
-
   useEffect(() => {
-    const timer = setTimeout(fetchOrders, 300);
-    return () => clearTimeout(timer);
-  }, [fetchOrders]);
+    const controller = new AbortController();
+
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      const params = new URLSearchParams({
+        search,
+        page: String(pageFromUrl),
+        period,
+      });
+      if (status) params.set("status", status);
+      if (period === "custom") params.set("date", customDate);
+
+      try {
+        const res = await fetch(`/api/orders?${params}`, { signal: controller.signal });
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+
+        setOrders(data.orders || []);
+        setDailyGroups(data.dailyGroups || []);
+        setSummary(data.summary || null);
+        setPeriodLabel(data.periodLabel || "Aaj");
+        setTotalPages(data.pagination?.totalPages || 1);
+        setTotal(data.pagination?.total || 0);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setOrders([]);
+        setDailyGroups([]);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [search, status, period, customDate, pageFromUrl]);
 
   const toggleOrderFilter = (filter: "pending" | "completed" | "all") => {
     if (filter === "all") {
@@ -258,14 +271,20 @@ export default function OrdersPage() {
     }
   };
 
+  const showDailyBreakdown =
+    (period === "week" || period === "month") && !status && dailyGroups.length > 0;
+
+  const listOrders =
+    !showDailyBreakdown && orders.length === 0 && dailyGroups.length > 0
+      ? dailyGroups.flatMap((g) => g.orders)
+      : orders;
+
   const filterListTitle =
     status === "PENDING"
       ? `Pending Orders (${summary?.pending ?? 0}) — Dispatch bills`
       : status === "COMPLETED"
         ? `Completed Orders (${summary?.completed ?? 0}) — Final bills`
         : null;
-
-  const showDailyBreakdown = (period === "week" || period === "month") && !status;
 
   return (
     <div className="space-y-6">
@@ -450,7 +469,7 @@ export default function OrdersPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <SearchInput
               value={search}
-              onChange={(v) => { setSearch(v); setPage(1); }}
+              onChange={(v) => setSearch(v)}
               placeholder="Bill ID, customer search..."
             />
             <Select
@@ -469,7 +488,7 @@ export default function OrdersPage() {
         <CardContent>
           {loading ? (
             <PageLoader />
-          ) : showDailyBreakdown && dailyGroups.length > 0 ? (
+          ) : showDailyBreakdown ? (
             <div className="space-y-8">
               {dailyGroups.map((group) => (
                 <div key={group.date}>
@@ -486,7 +505,7 @@ export default function OrdersPage() {
                 </div>
               ))}
               <Pagination
-                page={page}
+                page={pageFromUrl}
                 totalPages={totalPages}
                 total={total}
                 onPageChange={(p) => applyFilters({ page: String(p) })}
@@ -494,9 +513,18 @@ export default function OrdersPage() {
             </div>
           ) : (
             <>
-              <OrdersTable orders={orders} emptyTitle={`${periodLabel} — koi order nahi`} />
+              <OrdersTable
+                orders={listOrders}
+                emptyTitle={
+                  status === "COMPLETED"
+                    ? `${periodLabel} — koi completed order nahi`
+                    : status === "PENDING"
+                      ? `${periodLabel} — koi pending order nahi`
+                      : `${periodLabel} — koi order nahi`
+                }
+              />
               <Pagination
-                page={page}
+                page={pageFromUrl}
                 totalPages={totalPages}
                 total={total}
                 onPageChange={(p) => applyFilters({ page: String(p) })}

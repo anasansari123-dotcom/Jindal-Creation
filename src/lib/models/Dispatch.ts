@@ -67,8 +67,15 @@ export interface IDispatch extends Document {
   /** Archived bill PNG (WhatsApp share) on Cloudinary */
   billImageUrl?: string;
   billImagePublicId?: string;
+  /** Original dispatch bill PDF/image — preserved after final conversion */
+  dispatchBillPdfUrl?: string;
+  dispatchBillPdfPublicId?: string;
+  dispatchBillImageUrl?: string;
+  dispatchBillImagePublicId?: string;
   finalBillId?: string;
   convertedAt?: Date;
+  /** Cumulative amount returned against this bill */
+  returnedAmount?: number;
   statusHistory?: Array<{
     status: "PENDING" | "COMPLETED";
     billStatus: "DISPATCH" | "FINAL";
@@ -139,8 +146,13 @@ const DispatchSchema = new Schema<IDispatch>(
     billPdfPublicId: { type: String },
     billImageUrl: { type: String },
     billImagePublicId: { type: String },
+    dispatchBillPdfUrl: { type: String },
+    dispatchBillPdfPublicId: { type: String },
+    dispatchBillImageUrl: { type: String },
+    dispatchBillImagePublicId: { type: String },
     finalBillId: { type: String },
     convertedAt: { type: Date },
+    returnedAmount: { type: Number, default: 0, min: 0 },
     statusHistory: {
       type: [
         {

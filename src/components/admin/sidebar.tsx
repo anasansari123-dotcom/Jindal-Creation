@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   History,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
@@ -35,6 +36,7 @@ const navItems: { href: string; label: string; icon: React.ElementType; permissi
   { href: "/admin/sales", label: "Sales", icon: TrendingUp, permission: "sales" },
   { href: "/admin/payments", label: "Payments", icon: CreditCard, permission: "payments" },
   { href: "/admin/dispatch", label: "Create Bill", icon: Truck, permission: "dispatch" },
+  { href: "/admin/returns", label: "Product Returns", icon: RotateCcw, permission: "dispatch" },
   { href: "/admin/reports", label: "Reports", icon: BarChart3, permission: "reports" },
   { href: "/admin/users", label: "Users", icon: UserCog, permission: "users" },
   { href: "/admin/settings", label: "Settings", icon: Settings, permission: "settings" },

@@ -16,6 +16,7 @@ import {
 } from "@/lib/customer-bills";
 import { loadCustomerBillDocuments } from "@/lib/customer-bills.server";
 import { enrichDispatchesPaymentModes } from "@/lib/bill-payment-mode";
+import { collectCustomerBillArchives } from "@/lib/customer-bill-files";
 
 export async function GET(
   _request: NextRequest,
@@ -62,6 +63,11 @@ export async function GET(
     const enrichedDispatchBills = enrichedDispatches.filter((d) => d.billStatus === "DISPATCH");
     const enrichedFinalBills = enrichedDispatches.filter((d) => d.billStatus === "FINAL");
 
+    const billArchives = collectCustomerBillArchives(
+      dispatches.filter(nameMatched),
+      customer.name
+    );
+
     return apiSuccess({
       customer: { ...customer, creditBalance },
       orders: [...orders].sort(
@@ -74,6 +80,7 @@ export async function GET(
       bills,
       payments,
       paymentLedger,
+      billArchives,
       stats: {
         totalOrders: orders.length,
         totalDispatchBills: dispatchBills.length,

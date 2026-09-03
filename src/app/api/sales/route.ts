@@ -24,8 +24,14 @@ function getDateRange(filter: string, startDate?: string, endDate?: string) {
       const y = subDays(now, 1);
       return { start: startOfDay(y), end: endOfDay(y) };
     }
-    case "week":
-      return { start: startOfWeek(now), end: endOfDay(now) };
+    case "week": {
+      const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+      const monthStart = startOfMonth(now);
+      return {
+        start: weekStart < monthStart ? monthStart : weekStart,
+        end: endOfDay(now),
+      };
+    }
     case "month":
       return { start: startOfMonth(now), end: endOfDay(now) };
     case "custom":

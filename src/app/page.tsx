@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { JsonLd } from "@/components/json-ld";
-import { faqPageJsonLd, siteMetadata } from "@/lib/seo";
 import { LandingPage } from "@/components/landing-page";
+import { siteMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = siteMetadata({
   title: "Jindal Creation | Jindal MZN — PVC Panels Near Me Muzaffarnagar",
@@ -13,10 +12,5 @@ export const metadata: Metadata = siteMetadata({
 });
 
 export default function HomePage() {
-  return (
-    <>
-      <JsonLd data={faqPageJsonLd()} />
-      <LandingPage />
-    </>
-  );
+  return <LandingPage />;
 }

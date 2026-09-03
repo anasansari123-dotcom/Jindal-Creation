@@ -110,6 +110,14 @@ const thStyle: CSSProperties = {
 const FINAL_COL_WIDTHS = ["22%", "9%", "8%", "11%", "11%", "17%", "10%", "12%"] as const;
 const DISPATCH_COL_WIDTHS = ["42%", "14%", "14%", "30%"] as const;
 
+/** html2canvas-safe summary cell — label + amount stay on one line in PDF/image */
+const summaryCell: CSSProperties = {
+  padding: "3px 0",
+  whiteSpace: "nowrap",
+  verticalAlign: "middle",
+  lineHeight: 1.35,
+};
+
 export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
   function BillPreview({ bill }, ref) {
     const showPricing = bill.billType === "FINAL";
@@ -314,18 +322,29 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                 ) : null}
               </td>
               <td style={{ padding: 0, width: 320, verticalAlign: "top" }}>
-                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    fontSize: 13,
+                    borderCollapse: "collapse",
+                    tableLayout: "fixed",
+                  }}
+                >
+                  <colgroup>
+                    <col style={{ width: "58%" }} />
+                    <col style={{ width: "42%" }} />
+                  </colgroup>
                   <tbody>
                     <tr>
-                      <td style={{ padding: "3px 0" }}>Subtotal:</td>
-                      <td style={{ padding: "3px 0", textAlign: "right", whiteSpace: "nowrap" }}>
+                      <td style={summaryCell}>Subtotal:</td>
+                      <td style={{ ...summaryCell, textAlign: "right" }}>
                         {formatCurrency(bill.subtotal)}
                       </td>
                     </tr>
                     {bill.discount > 0 && (
                       <tr>
-                        <td style={{ padding: "3px 0", color: C.red600 }}>Discount:</td>
-                        <td style={{ padding: "3px 0", textAlign: "right", color: C.red600, whiteSpace: "nowrap" }}>
+                        <td style={{ ...summaryCell, color: C.red600 }}>Discount:</td>
+                        <td style={{ ...summaryCell, textAlign: "right", color: C.red600 }}>
                           -{formatCurrency(bill.discount)}
                         </td>
                       </tr>
@@ -333,22 +352,21 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                     {carriedForward > 0 && (
                       <>
                         <tr>
-                          <td style={{ padding: "3px 0" }}>Is Bill Ka Amount:</td>
-                          <td style={{ padding: "3px 0", textAlign: "right", whiteSpace: "nowrap" }}>
+                          <td style={summaryCell}>Is Bill Ka Amount:</td>
+                          <td style={{ ...summaryCell, textAlign: "right" }}>
                             {formatCurrency(currentBillAmount)}
                           </td>
                         </tr>
                         <tr>
-                          <td style={{ padding: "3px 0", color: C.gold, fontWeight: 600 }}>
+                          <td style={{ ...summaryCell, color: C.gold, fontWeight: 600 }}>
                             Purani Pending:
                           </td>
                           <td
                             style={{
-                              padding: "3px 0",
+                              ...summaryCell,
                               textAlign: "right",
                               color: C.gold,
                               fontWeight: 600,
-                              whiteSpace: "nowrap",
                             }}
                           >
                             +{formatCurrency(carriedForward)}
@@ -357,24 +375,21 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                       </>
                     )}
                     <tr>
-                      <td
-                        style={{
-                          padding: "6px 0 3px",
-                          fontWeight: 700,
-                          fontSize: 15,
-                          borderTop: `1px solid ${C.border}`,
-                        }}
-                      >
+                      <td colSpan={2} style={{ padding: "6px 0 0", lineHeight: 0, fontSize: 0 }}>
+                        <div style={{ height: 1, backgroundColor: C.border, width: "100%" }} />
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ ...summaryCell, padding: "6px 0 3px", fontWeight: 700, fontSize: 15 }}>
                         Grand Total:
                       </td>
                       <td
                         style={{
+                          ...summaryCell,
                           padding: "6px 0 3px",
                           textAlign: "right",
                           fontWeight: 700,
                           fontSize: 15,
-                          borderTop: `1px solid ${C.border}`,
-                          whiteSpace: "nowrap",
                         }}
                       >
                         {formatCurrency(bill.total)}
@@ -382,52 +397,37 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                     </tr>
                     {cashPaid > 0 && (
                       <tr>
-                        <td style={{ padding: "3px 0", color: C.green700 }}>Customer Paid:</td>
-                        <td
-                          style={{
-                            padding: "3px 0",
-                            textAlign: "right",
-                            color: C.green700,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
+                        <td style={{ ...summaryCell, color: C.green700 }}>Customer Paid:</td>
+                        <td style={{ ...summaryCell, textAlign: "right", color: C.green700 }}>
                           {formatCurrency(cashPaid)}
                         </td>
                       </tr>
                     )}
                     {(bill.creditApplied || 0) > 0 && (
                       <tr>
-                        <td style={{ padding: "3px 0", color: C.green700 }}>Advance Applied:</td>
-                        <td
-                          style={{
-                            padding: "3px 0",
-                            textAlign: "right",
-                            color: C.green700,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
+                        <td style={{ ...summaryCell, color: C.green700 }}>Advance Applied:</td>
+                        <td style={{ ...summaryCell, textAlign: "right", color: C.green700 }}>
                           {formatCurrency(creditAppliedOnBill)}
                         </td>
                       </tr>
                     )}
                     <tr>
-                      <td style={{ padding: "3px 0" }}>Payment Mode:</td>
-                      <td style={{ padding: "3px 0", textAlign: "right", fontWeight: 500 }}>
+                      <td style={summaryCell}>Payment Mode:</td>
+                      <td style={{ ...summaryCell, textAlign: "right", fontWeight: 500 }}>
                         {paymentModeLabel}
                       </td>
                     </tr>
                     {creditAdded > 0 ? (
                       <tr>
-                        <td style={{ padding: "3px 0", color: C.gold, fontWeight: 700 }}>
+                        <td style={{ ...summaryCell, color: C.gold, fontWeight: 700 }}>
                           Advance Save:
                         </td>
                         <td
                           style={{
-                            padding: "3px 0",
+                            ...summaryCell,
                             textAlign: "right",
                             color: C.gold,
                             fontWeight: 700,
-                            whiteSpace: "nowrap",
                           }}
                         >
                           {formatCurrency(creditAdded)}
@@ -435,14 +435,13 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                       </tr>
                     ) : (
                       <tr>
-                        <td style={{ padding: "3px 0", color: C.red600, fontWeight: 700 }}>Pending:</td>
+                        <td style={{ ...summaryCell, color: C.red600, fontWeight: 700 }}>Pending:</td>
                         <td
                           style={{
-                            padding: "3px 0",
+                            ...summaryCell,
                             textAlign: "right",
                             color: C.red600,
                             fontWeight: 700,
-                            whiteSpace: "nowrap",
                           }}
                         >
                           {formatCurrency(pending)}
@@ -450,22 +449,27 @@ export const BillPreview = forwardRef<HTMLDivElement, { bill: BillData }>(
                       </tr>
                     )}
                     <tr>
+                      <td colSpan={2} style={{ padding: "6px 0 0", lineHeight: 0, fontSize: 0 }}>
+                        <div style={{ height: 1, backgroundColor: C.border, width: "100%" }} />
+                      </td>
+                    </tr>
+                    <tr>
                       <td
                         colSpan={2}
                         style={{
                           fontSize: 11,
                           color: C.gray500,
-                          borderTop: `1px solid ${C.border}`,
                           paddingTop: 6,
                           paddingBottom: 3,
+                          whiteSpace: "nowrap",
                         }}
                       >
                         {formatBillPaymentFormula(payment)}
                       </td>
                     </tr>
                     <tr>
-                      <td style={{ padding: "3px 0", fontSize: 12, color: C.gray500 }}>Status:</td>
-                      <td style={{ padding: "3px 0", textAlign: "right", fontSize: 12, color: C.gray500 }}>
+                      <td style={{ ...summaryCell, fontSize: 12, color: C.gray500 }}>Status:</td>
+                      <td style={{ ...summaryCell, textAlign: "right", fontSize: 12, color: C.gray500 }}>
                         {paymentStatus}
                       </td>
                     </tr>

@@ -30,6 +30,14 @@ function buildBaseQuery(search: string, status: string) {
   return query;
 }
 
+function readPeriod(searchParams: URLSearchParams): OrderPeriod {
+  const p = searchParams.get("period");
+  if (p && ["today", "yesterday", "week", "month", "custom"].includes(p)) {
+    return p as OrderPeriod;
+  }
+  return "today";
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireAuth("orders");
   if (auth instanceof Response) return auth;
@@ -39,7 +47,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const status = searchParams.get("status") || "";
-    const period = (searchParams.get("period") || "today") as OrderPeriod;
+    const period = readPeriod(searchParams);
     const customDate = searchParams.get("date") || "";
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
@@ -48,14 +56,15 @@ export async function GET(request: NextRequest) {
     const periodQuery = {
       dispatchDate: { $gte: start, $lte: end },
     };
+    const filteredQuery = {
+      ...buildBaseQuery(search, status),
+      ...periodQuery,
+    };
     const summaryQuery = {
       ...buildBaseQuery(search, ""),
       ...periodQuery,
     };
-    const listQuery = {
-      ...buildBaseQuery(search, status),
-      ...periodQuery,
-    };
+    const listQuery = filteredQuery;
 
     const skip = (page - 1) * limit;
 
@@ -72,7 +81,7 @@ export async function GET(request: NextRequest) {
 
     let dailyGroups: ReturnType<typeof groupOrdersByDay> = [];
     if (period === "week" || period === "month") {
-      const allFull = await Dispatch.find(summaryQuery).sort({ dispatchDate: -1 }).lean();
+      const allFull = await Dispatch.find(filteredQuery).sort({ dispatchDate: -1 }).lean();
       dailyGroups = groupOrdersByDay(allFull.map((d) => dispatchToOrderEntry(d)));
     }
 

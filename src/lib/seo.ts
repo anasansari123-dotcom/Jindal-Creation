@@ -35,32 +35,6 @@ export const SEO_KEYWORDS = [
   "Jindal Creation UP",
 ] as const;
 
-export const SEO_FAQ = [
-  {
-    question: "Where is Jindal Creation near me in Muzaffarnagar?",
-    answer: `Jindal Creation (Jindal MZN) Muzaffarnagar, Uttar Pradesh ${LOCAL_BUSINESS.address.pincode} me located hai. PVC panels, home decor aur interior products ke liye aap online stock check kar sakte hain ya ${LOCAL_BUSINESS.phoneDisplay} par call / WhatsApp kar sakte hain.`,
-  },
-  {
-    question: "What does Jindal Creation Muzaffarnagar sell?",
-    answer:
-      "Jindal Creation MZN PVC panels, PVC stock, home decor, interior products aur wholesale supply karta hai — Muzaffarnagar, Saharanpur, Meerut aur nearby areas ke liye.",
-  },
-  {
-    question: "How to order from Jindal Creation MZN?",
-    answer:
-      "Website par /stock page se product search karein, Order button se quantity add karein, aur WhatsApp par apna order bhejein. Ya seedha WhatsApp enquiry karein.",
-  },
-  {
-    question: "Is Jindal Muzaffarnagar same as Jindal Creation?",
-    answer:
-      "Haan — Jindal MZN, Jindal Muzaffarnagar aur Jindal Creation MZN sab Jindal Creation brand ke naam hain, Muzaffarnagar me PVC panels aur home decor supplier.",
-  },
-  {
-    question: "Does Jindal Creation deliver outside Muzaffarnagar?",
-    answer: `Jindal Creation ${LOCAL_BUSINESS.serviceAreas.join(", ")} aur nearby areas me supply karta hai. Bulk order ke liye WhatsApp par confirm karein.`,
-  },
-] as const;
-
 const DEFAULT_TITLE =
   "Jindal Creation | Jindal MZN — PVC Panels & Home Decor Muzaffarnagar Near Me";
 
@@ -206,22 +180,6 @@ export function websiteJsonLd() {
       target: `${SITE_URL}/stock?search={search_term_string}`,
       "query-input": "required name=search_term_string",
     },
-  };
-}
-
-export function faqPageJsonLd() {
-  return {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    "@id": `${SITE_URL}/#faq`,
-    mainEntity: SEO_FAQ.map((item) => ({
-      "@type": "Question",
-      name: item.question,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: item.answer,
-      },
-    })),
   };
 }
 

@@ -31,7 +31,6 @@ import {
 import { BRAND, DEFAULT_WHATSAPP_NUMBER, DEFAULT_WHATSAPP_DISPLAY } from "@/lib/constants";
 import { generateWhatsAppUrl } from "@/lib/utils";
 import { groupProductsByCategory, formatProductDisplay } from "@/lib/product-display";
-import { SeoFaqSection } from "@/components/seo-faq-section";
 
 interface StockProduct {
   id: string;
@@ -486,7 +485,6 @@ export default function StockPage() {
           </div>
         )}
 
-        <SeoFaqSection variant="light" />
       </main>
 
       <footer className="border-t bg-white py-6 text-center text-xs text-gray-400 px-4">

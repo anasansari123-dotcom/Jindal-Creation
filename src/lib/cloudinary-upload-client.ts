@@ -42,7 +42,7 @@ export async function uploadDispatchFile(params: {
   dispatchId: string;
   file: Blob;
   filename: string;
-  fileType: "load-photo" | "bill-pdf" | "bill-image";
+  fileType: "load-photo" | "bill-pdf" | "bill-image" | "dispatch-bill-pdf" | "dispatch-bill-image";
   mimeType?: string;
 }) {
   const formData = new FormData();
